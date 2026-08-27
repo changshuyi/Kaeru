@@ -12,17 +12,29 @@ export const TINY_PNG =
 // 「沒有資料就自動建一個空行程」的效果搶跑（那個race 曾經在這個
 // session 裡真的發生過：evaluate 寫得比 App 的效果晚一個 tick，資料
 // 被悄悄蓋掉）。
-export async function seedTrip(page, { items = [], trips = [], activeId = null, photos = {} } = {}) {
+export async function seedTrip(
+  page,
+  { items = [], trips = [], activeId = null, photos = {}, photoPermissionPrimed = true } = {},
+) {
+  // photoPermissionPrimed 預設 true——大部分測試在意的是「拍照/選圖
+  // 之後」的行為，不是權限說明畫面本身，不用每個 spec 都先點過一次
+  // 「允許」才能往下測。真的要測權限說明畫面的（e2e/permission-
+  // prime.spec.js），才需要顯式傳 false。
   await page.addInitScript(
-    ({ items, trips, activeId, photos }) => {
+    ({ items, trips, activeId, photos, photoPermissionPrimed }) => {
       localStorage.setItem(
         'kaeru:jptax:v2',
-        JSON.stringify({ items, settings: { rate: 0.21, lang: 'zh' }, trips, activeId }),
+        JSON.stringify({
+          items,
+          settings: { rate: 0.21, lang: 'zh', photoPermissionPrimed },
+          trips,
+          activeId,
+        }),
       );
       for (const [id, list] of Object.entries(photos)) {
         localStorage.setItem(`kaeru:jptax:photo:${id}`, JSON.stringify(list));
       }
     },
-    { items, trips, activeId, photos },
+    { items, trips, activeId, photos, photoPermissionPrimed },
   );
 }

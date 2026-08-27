@@ -828,6 +828,22 @@ const T = {
     privacyLegalNote:
       '台灣個資法和日本個人情報保護法給你查詢、更正、刪除資料的權利。這些東西本來就在你手上，直接改、直接刪就好。有問題寄',
 
+    // ---- 權限說明 ----
+    permissionPrimeTitle: '要用相機和相簿',
+    permissionPrimeDesc: '拍收據，或從相簿挑。辨識都在你的手機上跑完，照片不會傳出去。',
+    permissionPrimeDoKicker: '會做的事',
+    permissionPrimeDo1: '讀取你選的那幾張照片，辨識金額和店名',
+    permissionPrimeDo2: '把照片壓縮後存在這台手機裡',
+    permissionPrimeDo3: '就這樣。沒有第三步',
+    permissionPrimeDontKicker: '不會做的事',
+    permissionPrimeDont1: '不會讀取你相簿裡其他照片',
+    permissionPrimeDont2: '不會把照片或金額傳到任何伺服器',
+    permissionPrimeDont3: '不需要註冊，也沒有帳號',
+    permissionPrimeOptionalTitle: '不給也能用',
+    permissionPrimeOptionalDesc: '照片不是必要的。金額自己打一樣能用，不會少任何功能。',
+    permissionPrimeAllowCta: '允許使用相機和相簿',
+    permissionPrimeDeclineCta: '先不要，我自己手動輸入',
+
     // ---- 2b 體驗調整 ----
     todayActionTitle: '今天要辦的事',
     todayActionLine: (n) => `還有 ${n} 張沒辦完`,
@@ -1345,6 +1361,22 @@ const T = {
     privacyExportBoxCta: '開く',
     privacyLegalNote:
       '台湾の個人資料保護法および日本の個人情報保護法により、データの確認・修正・削除を求める権利があります。データはお使いの端末にありますので、直接変更・削除していただけます。ご不明点は',
+
+    // ---- 権限説明 ----
+    permissionPrimeTitle: 'カメラと写真へのアクセス',
+    permissionPrimeDesc: 'レシートを撮影するか、写真から選びます。文字認識はすべて端末上で行われ、写真は外部に送信されません。',
+    permissionPrimeDoKicker: '行うこと',
+    permissionPrimeDo1: '選んだ写真を読み取り、金額と店名を認識します',
+    permissionPrimeDo2: '写真を圧縮してこの端末に保存します',
+    permissionPrimeDo3: 'それだけです。他には何もしません',
+    permissionPrimeDontKicker: '行わないこと',
+    permissionPrimeDont1: '写真アプリ内の他の写真は読み取りません',
+    permissionPrimeDont2: '写真や金額をサーバーに送信しません',
+    permissionPrimeDont3: '登録やアカウント作成は不要です',
+    permissionPrimeOptionalTitle: '許可しなくても使えます',
+    permissionPrimeOptionalDesc: '写真は必須ではありません。金額を自分で入力しても、機能は変わりません。',
+    permissionPrimeAllowCta: 'カメラと写真へのアクセスを許可',
+    permissionPrimeDeclineCta: '今はしない。自分で入力します',
 
     // ---- 2b 體驗調整 ----
     todayActionTitle: '今日やること',
@@ -2861,6 +2893,10 @@ export default function App() {
     rate: 0.21,
     rateAt: null,
     lang: 'zh',
+    // 第一次要用相機/相簿前要先看過權限說明——這裡預設 false 也適用
+    // 舊資料：舊使用者升級上來，settings 裡本來就沒有這個欄位，跟
+    // 全新安裝一樣會先看過一次，不會因為是舊資料就被跳過。
+    photoPermissionPrimed: false,
   });
   const [trips, setTrips] = useState([]);
   const [activeId, setActiveId] = useState(null);
@@ -4085,6 +4121,10 @@ export default function App() {
             // save() 會另外產生一個真的 id，這個草稿物件不會留下來。
             deferOpen(() => setEditing({ ...draft, _photos: photosArr }));
           }}
+          photoPermissionPrimed={settings.photoPermissionPrimed}
+          onPhotoPermissionPrimed={() =>
+            setSettings((s) => ({ ...s, photoPermissionPrimed: true }))
+          }
         />
       )}
 
@@ -4102,6 +4142,10 @@ export default function App() {
             upsert(item, photosData);
             setEditing(null);
           }}
+          photoPermissionPrimed={settings.photoPermissionPrimed}
+          onPhotoPermissionPrimed={() =>
+            setSettings((s) => ({ ...s, photoPermissionPrimed: true }))
+          }
         />
       )}
 
@@ -4126,6 +4170,9 @@ export default function App() {
             )
           }
           onDelete={() => remove(openId)}
+          onPhotoPermissionPrimed={() =>
+            setSettings((s) => ({ ...s, photoPermissionPrimed: true }))
+          }
         />
       )}
     </div>
@@ -8292,10 +8339,21 @@ function AirportPickerSheet({ t, selected, onClose, onPick }) {
 // （跟 useState 的 setter 同介面），EditSheet 傳真的 setState，DetailSheet
 // 傳一個包了 onPhotosChange 的 wrapper（因為 DetailSheet 沒有「儲存」按鈕，
 // 加/刪照片要立刻生效、直接寫回上層）。
-function usePhotoCapture({ imgs, setImgs, onParsed, librarySingleSelect }) {
+function usePhotoCapture({
+  imgs,
+  setImgs,
+  onParsed,
+  librarySingleSelect,
+  permissionPrimed,
+  onPrimed,
+}) {
   const [photoPromptOpen, setPhotoPromptOpen] = useState(false);
   const [photoDenied, setPhotoDenied] = useState(null); // null | 'camera' | 'photos'
   const [confirmPhoto, setConfirmPhoto] = useState(null); // { src, fromScan } | null
+  // 第一次要用相機/相簿前的權限說明畫面（見 PermissionPrimeSheet）——
+  // 只在 permissionPrimed 還是 false 時擋在 pickPhoto 前面一次，接受
+  // 或拒絕都會讓呼叫端把 permissionPrimed 存成 true，之後不會再擋。
+  const [primeOpen, setPrimeOpen] = useState(false);
   // openCamera/openLibrary/openScan 一開始就同步把 photoPromptOpen 設成
   // false，然後才 await 原生相機/相簿/掃描的結果——中間那段「原生還沒
   // 回來」的空檔，photoPromptOpen/confirmPhoto/photoDenied 全部都是空的，
@@ -8306,6 +8364,9 @@ function usePhotoCapture({ imgs, setImgs, onParsed, librarySingleSelect }) {
   const fileRef = useRef(null);
   const remaining = MAX_PHOTOS - imgs.length;
   useBackClose(photoPromptOpen, () => setPhotoPromptOpen(false));
+  // 返回鍵當成「先不要」——一樣要記住已經說明過，不然退出去再點一次
+  // 拍照，這個畫面又會跳出來一次，跟按「先不要」故意的效果不一致。
+  useBackClose(primeOpen, () => declinePrime());
   // confirmPhoto（裁切畫面）的返回要先問「要放棄嗎」，不能直接關，
   // 交給 PhotoConfirmSheet 自己用 useBackClose 接（見該元件），這裡
   // 不重複註冊，否則兩邊會搶同一層。
@@ -8314,6 +8375,43 @@ function usePhotoCapture({ imgs, setImgs, onParsed, librarySingleSelect }) {
     if (!err) return false;
     const msg = String(err.message || err.code || '').toLowerCase();
     return msg.includes('permission') || msg.includes('denied');
+  }
+
+  // 權限說明畫面看過之後要恢復成什麼，有兩種：pickPhoto()（「+加
+  // 照片」這類次要按鈕）非原生平台會直接點開純檔案選擇器；
+  // openInitialPrompt()（QuickAddFlow 一進來就自動跳的那個）永遠要
+  // 看到完整的三選一來源選單，不套用那個平台判斷的捷徑——快速新增
+  // 的第一個畫面在原生裝置上本來就是完整選單，不能因為測試/開發
+  // 環境是瀏覽器就變成另一種體驗。用這個 ref 記住這次是哪一種，
+  // confirmPrime() 才知道「允許」之後該恢復成哪一個。
+  const primeResumeRef = useRef(null); // 'menu' | null
+
+  function openSourcePicker() {
+    if (Capacitor.isNativePlatform()) {
+      setPhotoPromptOpen(true);
+      return;
+    }
+    fileRef.current && fileRef.current.click();
+  }
+
+  function confirmPrime() {
+    setPrimeOpen(false);
+    if (onPrimed) onPrimed();
+    if (primeResumeRef.current === 'menu') {
+      setPhotoPromptOpen(true);
+    } else {
+      openSourcePicker();
+    }
+    primeResumeRef.current = null;
+  }
+
+  // 「先不要，我自己手動輸入」——拒絕的路要留得體面，不是降級體驗。
+  // 這裡不強迫開來源選單，單純記住「已經說明過」，讓使用者這次維持
+  // 手動填寫；下次再點拍照/選圖，直接進正常流程，不會再看到這個畫面。
+  function declinePrime() {
+    setPrimeOpen(false);
+    if (onPrimed) onPrimed();
+    primeResumeRef.current = null;
   }
 
   async function onPick(e) {
@@ -8333,11 +8431,29 @@ function usePhotoCapture({ imgs, setImgs, onParsed, librarySingleSelect }) {
   function pickPhoto() {
     if (remaining <= 0) return;
     setPhotoDenied(null);
-    if (Capacitor.isNativePlatform()) {
-      setPhotoPromptOpen(true);
+    // 第一次要用相機或相簿前出現的權限說明——不是 App 一開就跳，是
+    // 使用者真的要拍照/選圖的這一刻才問。permissionPrimed 沒傳（例如
+    // 網頁版還沒接這個流程）就當作已經看過，不擋。
+    if (permissionPrimed === false) {
+      primeResumeRef.current = null;
+      setPrimeOpen(true);
       return;
     }
-    fileRef.current && fileRef.current.click();
+    openSourcePicker();
+  }
+
+  // QuickAddFlow 一進來就自動跳出來源選單那個效果專用——跟 pickPhoto()
+  // 唯一的差異是「允許」之後永遠恢復成完整的三選一選單（見上面
+  // primeResumeRef 的說明），不走 pickPhoto() 那條非原生平台直接開
+  // 純檔案選擇器的捷徑。
+  function openInitialPrompt() {
+    setPhotoDenied(null);
+    if (permissionPrimed === false) {
+      primeResumeRef.current = 'menu';
+      setPrimeOpen(true);
+      return;
+    }
+    setPhotoPromptOpen(true);
   }
 
   async function openCamera() {
@@ -8540,6 +8656,7 @@ function usePhotoCapture({ imgs, setImgs, onParsed, librarySingleSelect }) {
     remaining,
     onPick,
     pickPhoto,
+    openInitialPrompt,
     openCamera,
     openLibrary,
     openScan,
@@ -8547,6 +8664,9 @@ function usePhotoCapture({ imgs, setImgs, onParsed, librarySingleSelect }) {
     retake,
     removeImg,
     retypeImg,
+    primeOpen,
+    confirmPrime,
+    declinePrime,
   };
 }
 
@@ -8554,9 +8674,102 @@ function usePhotoCapture({ imgs, setImgs, onParsed, librarySingleSelect }) {
 // onConfirmCancelled 是選填的——只有 QuickAddFlow 需要，見下面該元件裡
 // 的說明；EditSheet／DetailSheet 不傳，維持原本「關掉確認畫面就回表單」
 // 的行為不變。
+// 畫面 55：權限說明。第一次要用相機或相簿前出現，不是 App 一開就跳
+// ——使用者對相簿權限的預設懷疑是「你要拿去幹什麼」，「就這樣。沒有
+// 第三步」把清單封口比多寫三行保證有效。拒絕的路要留得體面：照片本
+// 來就是選填的，「先不要」不是降級體驗，不用警告語氣、不用 clay。
+function PermissionPrimeSheet({ t, onAllow, onDecline }) {
+  return (
+    <FullScreenSheet>
+      <div className="kaeru-pad py-6">
+        <div className="flex items-center gap-2">
+          <FrogMark size={30} />
+          <span
+            className="font-bold"
+            style={{ fontSize: '12.5px', letterSpacing: '0.28em', color: C.blueDeep }}
+          >
+            KAERU
+          </span>
+        </div>
+
+        <h1 className="mt-5 font-bold" style={{ fontSize: '22px', color: C.ink, lineHeight: 1.4 }}>
+          {t.permissionPrimeTitle}
+        </h1>
+        <p className="mt-2.5" style={{ fontSize: '13px', color: C.sub, lineHeight: 1.85 }}>
+          {t.permissionPrimeDesc}
+        </p>
+
+        <div className="mt-6" style={{ borderTop: `1px solid ${C.ink}`, paddingTop: '16px' }}>
+          <SectionLabel>{t.permissionPrimeDoKicker}</SectionLabel>
+          <ol className="mt-3" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {[t.permissionPrimeDo1, t.permissionPrimeDo2, t.permissionPrimeDo3].map((line, i) => (
+              <li key={i} className="flex gap-3">
+                <span
+                  className="shrink-0 font-bold tabular-nums"
+                  style={{ color: C.blue, opacity: 0.7, fontSize: '11px' }}
+                >
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <p style={{ fontSize: '12.5px', lineHeight: 1.8, color: C.ink }}>{line}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <div className="mt-5" style={{ borderTop: `1px solid ${C.line}`, paddingTop: '16px' }}>
+          <SectionLabel>{t.permissionPrimeDontKicker}</SectionLabel>
+          <ol className="mt-3" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {[t.permissionPrimeDont1, t.permissionPrimeDont2, t.permissionPrimeDont3].map((line, i) => (
+              <li key={i} className="flex gap-3">
+                <span
+                  className="shrink-0 font-bold tabular-nums"
+                  style={{ color: C.blue, opacity: 0.7, fontSize: '11px' }}
+                >
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <p style={{ fontSize: '12.5px', lineHeight: 1.8, color: C.ink }}>{line}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <div className="mt-6" style={{ backgroundColor: C.soft, padding: '14px' }}>
+          <p className="font-bold" style={{ fontSize: '13px', color: C.ink }}>
+            {t.permissionPrimeOptionalTitle}
+          </p>
+          <p className="mt-1.5" style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.8 }}>
+            {t.permissionPrimeOptionalDesc}
+          </p>
+        </div>
+
+        <div className="mt-6">
+          <button
+            onClick={onAllow}
+            className="w-full py-3.5 text-sm font-semibold"
+            style={{ backgroundColor: C.blue, color: '#FFFFFF' }}
+          >
+            {t.permissionPrimeAllowCta}
+          </button>
+          <button
+            onClick={onDecline}
+            className="mt-3 w-full text-center font-semibold"
+            style={{ fontSize: '12.5px', color: C.blueDeep }}
+          >
+            {t.permissionPrimeDeclineCta}
+          </button>
+        </div>
+      </div>
+    </FullScreenSheet>
+  );
+}
+
 function PhotoCaptureSheets({ t, cap, onConfirmCancelled }) {
   return (
     <>
+      {cap.primeOpen && (
+        <PermissionPrimeSheet t={t} onAllow={cap.confirmPrime} onDecline={cap.declinePrime} />
+      )}
+
       {cap.photoPromptOpen && (
         <BottomSheet onClose={() => cap.setPhotoPromptOpen(false)}>
           <div className="flex items-center justify-between">
@@ -8628,7 +8841,14 @@ function PhotoCaptureSheets({ t, cap, onConfirmCancelled }) {
 // PhotoCaptureSheets 拍照/選相簿/掃描/裁切/OCR 邏輯，外面包一個完全不同
 // 的迷你表單——沒有店名/日期輸入框，也不能選稅率，OCR 讀到什麼就是
 // 什麼，讀不到就掛「待補」標籤。
-function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
+function QuickAddFlow({
+  t,
+  onClose,
+  onSaveQuick,
+  onSaveFull,
+  photoPermissionPrimed,
+  onPhotoPermissionPrimed,
+}) {
   const [imgs, setImgs] = useState([]);
   const [parsed, setParsed] = useState(null);
   const [refundMethod, setRefundMethod] = useState(null); // 必答，故意不預選
@@ -8664,6 +8884,8 @@ function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
     // 這個畫面全程只顯示、只用得到第一張照片——選相簿限制成單選，不然
     // 選第 2 張以後的照片會悄悄存進去、卻沒有任何畫面能看到/改型別。
     librarySingleSelect: true,
+    permissionPrimed: photoPermissionPrimed,
+    onPrimed: onPhotoPermissionPrimed,
   });
   // 這裡不用另外掛一層 useBackClose——整個快路（從開始到存檔／取消）
   // 在使用者心裡是同一個任務，外層 App 已經用 quickAddOn 掛了一層；
@@ -8677,7 +8899,12 @@ function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
   useEffect(() => {
     if (!openedRef.current) {
       openedRef.current = true;
-      cap.setPhotoPromptOpen(true);
+      // 用 openInitialPrompt()，不要直接 setPhotoPromptOpen(true)——
+      // 第一次要用相機/相簿前要先看過權限說明（見 usePhotoCapture），
+      // 直接開 photoPromptOpen 會跳過這一關；也不要用 pickPhoto()，
+      // 那個給「+加照片」這類次要按鈕用，非原生平台會直接開純檔案
+      // 選擇器，快速新增一進來永遠要看到完整的三選一選單。
+      cap.openInitialPrompt();
       return;
     }
     // 相機/相簿權限被拒時要讓使用者看得到原因、有機會去設定開啟，
@@ -8687,13 +8914,15 @@ function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
     // 那段「原生還沒回來」的空檔，跟真的什麼都沒選、放棄整條快路，從
     // 這四個狀態看起來一模一樣——沒有這個旗標的話，點「拍照」的當下
     // 就會被這裡誤判成放棄，直接把整條快路關掉，原生相機根本還沒跳
-    // 出來。
+    // 出來。cap.primeOpen 也要排除：權限說明畫面開著的時候一樣不算
+    // 放棄，那是流程的一部分，不是使用者關掉整個選單。
     if (
       !imgs.length &&
       !cap.photoPromptOpen &&
       !cap.confirmPhoto &&
       !cap.photoDenied &&
-      !cap.capturing
+      !cap.capturing &&
+      !cap.primeOpen
     ) {
       onClose();
     }
@@ -8703,6 +8932,7 @@ function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
     cap.confirmPhoto,
     cap.photoDenied,
     cap.capturing,
+    cap.primeOpen,
     imgs.length,
   ]);
 
@@ -9242,7 +9472,15 @@ function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
   );
 }
 
-function EditSheet({ t, initial, photos, onClose, onSave }) {
+function EditSheet({
+  t,
+  initial,
+  photos,
+  onClose,
+  onSave,
+  photoPermissionPrimed,
+  onPhotoPermissionPrimed,
+}) {
   const [shop, setShop] = useState(initial?.shop || '');
   const [date, setDate] = useState(initial?.date || todayStr());
   const [incl, setIncl] = useState(initial?.incl ?? '');
@@ -9353,6 +9591,8 @@ function EditSheet({ t, initial, photos, onClose, onSave }) {
         setIncl(String(parsed.incl));
       }
     },
+    permissionPrimed: photoPermissionPrimed,
+    onPrimed: onPhotoPermissionPrimed,
   });
 
   function save() {
@@ -10284,6 +10524,7 @@ function DetailSheet({
   onEdit,
   onStatus,
   onDelete,
+  onPhotoPermissionPrimed,
 }) {
   const d = daysLeft(item.date);
   const tax = taxOf(item);
@@ -10304,7 +10545,12 @@ function DetailSheet({
   const refunded = item.status === 'refunded';
   const [lightboxIndex, setLightboxIndex] = useState(null);
   useBackClose(lightboxIndex !== null, () => setLightboxIndex(null));
-  const cap = usePhotoCapture({ imgs: photos, setImgs: (updater) => onPhotosChange(typeof updater === 'function' ? updater(photos) : updater) });
+  const cap = usePhotoCapture({
+    imgs: photos,
+    setImgs: (updater) => onPhotosChange(typeof updater === 'function' ? updater(photos) : updater),
+    permissionPrimed: settings.photoPermissionPrimed,
+    onPrimed: onPhotoPermissionPrimed,
+  });
   const fmtShort = (iso) => {
     const dt = new Date(iso + 'T00:00:00');
     return `${dt.getMonth() + 1}/${dt.getDate()}`;
