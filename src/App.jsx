@@ -224,6 +224,13 @@ const MAIN_KEY = 'jptax:v2';
 const STAGES = ['purchased', 'registered', 'verified', 'refunded'];
 const MAX_PHOTOS = 4; // 一張收據最多存幾張照片
 
+// 這兩個故意手動維護，不用 new Date() 算——如果用「現在」算，畫面
+// 會永遠顯示「今天」，變成每次打開 App 都謊稱隱私政策剛剛更新過。
+// 版本號跟隱私政策內容實際變動時才手動改這裡，跟 App Store／Play
+// 上架版本號、上面第 8 節寫的「政策的更新」原則一致。
+const APP_VERSION_DATE = '2026 年 8 月';
+const PRIVACY_UPDATED_AT = '2026-08';
+
 function utf8ToBase64(str) {
   return btoa(unescape(encodeURIComponent(str)));
 }
@@ -474,7 +481,7 @@ const T = {
       '拆開包裝沒關係，衣服穿過也沒關係，只要查驗時東西還在、拿得出來就能退。真的吃掉、用掉，東西不在了，那張收據才會整張失效。',
     photo: '收據照片',
     takePhoto: '拍照或選檔',
-    photoSheetSub: '照片只存在這台裝置上，不會上傳。',
+    photoSheetSub: '照片只存在這台手機裡，不會上傳。',
     takePhotoOption: '拍照',
     takePhotoHint: '開相機，對準收據拍一張',
     chooseFromLibrary: '從相簿選',
@@ -511,13 +518,14 @@ const T = {
     photoTypeReceiptHint: '憑證，跑辨識、是金額來源',
     photoTypeItemLabel: '物品照片',
     photoTypeItemHint: '純備忘，不跑辨識、不影響金額',
-    photoStorageNote: '這裡存的是另存的副本，只在這台裝置上，不是手機相簿裡的原始照片。刪掉收據時，App 裡的副本會一起刪掉。',
+    photoStorageNote: '照片只存在這台手機裡。刪收據的時候照片會一起走。',
     zoomHint: '雙指縮放看細節',
     swipeHint: '左右滑動換照片',
     deletePhotoTitle: '刪除這張照片',
-    deletePhotoBodyMulti: (n) =>
-      `這張收據還有另外 ${n} 張照片，刪掉這張不影響金額和狀態。刪除後無法復原。`,
-    deletePhotoBodyLast: '這是最後一張照片。刪除後這張收據就沒有照片紀錄了。',
+    // 原本分「還有其他照片」跟「最後一張」兩種文案——但對金額/狀態
+    // 的影響其實一樣（都不影響），那個差異對使用者要不要按下去沒有
+    // 幫助，改成一句話講完，兩種情況共用。
+    deletePhotoBody: '刪掉這張不影響金額和狀態。刪了就沒了。',
     note: '備註',
     save: '儲存',
     edit: '編輯',
@@ -584,7 +592,6 @@ const T = {
     tripReceipts: '張收據',
     tripSwitch: '切換到這趟',
     tripDelete: '刪除這趟行程',
-    tripDeleteConfirm: '刪除這趟？裡面的收據會一起刪掉，沒辦法復原。',
     depPrefix: '回程',
     tripPast: '過去的行程',
     tripNow: '進行中',
@@ -610,7 +617,7 @@ const T = {
     statusPending: '張待處理',
     statusRefunded: '張已退款',
     statusDead: '張失效',
-    deleteTripWarning: (n) => `刪除行程會一起刪掉這 ${n} 張收據和 App 裡存的照片副本，無法復原。`,
+    deleteTripWarning: (n) => `刪掉這趟，裡面 ${n} 張收據和照片會一起走，沒辦法復原。`,
     tripDeleteMinNote: '至少要保留一個行程，新增另一個之後才能刪除這個。',
     emptyUnnamedKicker: '這趟行程',
     emptyUnnamedTitle: '還沒有名字',
@@ -729,7 +736,8 @@ const T = {
     dataManageKicker: '資料',
     dataManageTitle: '匯出或刪除資料',
     dataManageRowDesc: '匯出備份、清理照片，或整個重來。',
-    dataManageDesc: '資料都在這台手機裡，所以匯出和刪除都由你自己操作，不需要通知我們。',
+    dataManageDesc: '收據都在你手機裡，沒有別的地方存。要備份還是要清掉，你自己來就好。',
+    dataManageOutro: '刪掉就是刪掉了，沒有還原。手機以外沒有第二份，我們也幫不上。',
     dataManageReceiptCount: (n) => `${n} 張收據`,
     dataManagePhotoUsage: (n, size) => `照片 ${n} 張 · ${size}`,
     exportSectionLabel: '匯出',
@@ -752,8 +760,7 @@ const T = {
     exportTip2: 'ZIP 版本另外包含每張收據和物品照片，檔案會大很多',
     exportTip3: '待補的欄位留空，不會填 0——空白和零是兩件事',
     exportBoundaryTitle: '匯出之後檔案就離開 App 了',
-    exportBoundaryDesc:
-      '存到哪裡、要不要傳給別人，由你決定。那份檔案不再受這裡的設定保護。',
+    exportBoundaryDesc: '存到哪、要不要傳給別人，都是你決定。檔案出去以後，這裡的設定就管不到了。',
     exportCtaCsv: '匯出 CSV',
     exportCtaZip: '匯出 ZIP',
     exportShareHint: '會開啟系統的分享選單',
@@ -761,6 +768,8 @@ const T = {
     exportFailed: '匯出失敗，請再試一次。',
     exportForTrip: (name) => `${name} · 匯出`,
     exportForAll: '全部行程 · 匯出',
+    deleteConfirmDesc: (receipts, photos, trips) =>
+      `${receipts} 張收據、${photos} 張照片、${trips} 趟行程會一起消失，手機以外沒有第二份。`,
     deleteConfirmReceiptsRow: (n) => `收據與稅額紀錄 ${n} 張`,
     deleteConfirmPhotosRow: (n, size) => `照片 ${n} 張 · ${size}`,
     deleteConfirmTripsRow: (n) => `行程與機場設定 ${n} 趟`,
@@ -775,6 +784,50 @@ const T = {
     deletePhotosOnlyDesc: (size) => `省下 ${size}，金額紀錄會留著。`,
     deletePhotosOnlyCta: '刪除照片',
 
+    // ---- 關於 Kaeru ----
+    aboutRowLabel: '關於 Kaeru',
+    aboutVersion: (version, date) => `${version} · ${date}`,
+    aboutNameOriginKicker: '名字的由來',
+    aboutNameOriginDesc: '日文的「かえる」同時是三個意思。退稅這件事剛好三個都用上了。',
+    aboutKanji1: '帰る', aboutRomaji1: 'kaeru', aboutMeaning1: '回家', aboutMeaningDesc1: '行程結束前要辦完',
+    aboutKanji2: '換える', aboutRomaji2: 'kaeru', aboutMeaning2: '換回來', aboutMeaningDesc2: '把多付的稅換回來',
+    aboutKanji3: '蛙', aboutRomaji3: 'kaeru', aboutMeaning3: '青蛙', aboutMeaningDesc3: '所以標誌是一隻蛙',
+    aboutWhatKicker: '這個 App 做什麼',
+    aboutWhatDesc:
+      '只做一件事：在你回家之前，把該退的算清楚、別漏掉。哪張沒達到門檻、哪張快過期、機場要提早多久到，這些都幫你看著。',
+    aboutWhatBoundary:
+      '不代辦退稅、不碰你的錢，也沒連上海關或免稅店的系統。手續還是在店裡和機場辦。',
+    aboutEstimateTitle: '稅額是估算',
+    aboutEstimateDesc: '規則以日本國稅廳和各免稅店的公告為準。各店手續費不同，實際入帳可能少一點。',
+    aboutPrivacyLink: '隱私說明',
+    aboutFeedbackLabel: '回報問題或建議',
+    aboutFeedbackEmail: 'sueeloveblack@gmail.com',
+
+    // ---- 隱私說明 ----
+    privacyRowLabel: '隱私說明',
+    privacyUpdatedAt: (date) => `更新於 ${date}`,
+    privacyTitle: '你的資料在哪裡',
+    privacyIntro: '全部在這台手機裡。我們沒有存放收據的伺服器，也沒有帳號要你註冊。',
+    privacyRowAmount: '收據金額、店名、日期',
+    privacyRowPhotos: '收據與物品照片',
+    privacyRowTripSettings: '回程時間、機場、匯率設定',
+    privacyRowOcr: '文字辨識（OCR）',
+    privacyRowRate: '即時匯率',
+    privacyRowRateSub: '只送出幣別代碼，不會送出你的金額',
+    privacyRowAnalytics: '使用統計、廣告識別碼',
+    privacyBadgeLocalOnly: '只存本機',
+    privacyBadgeOnDevice: '手機上跑',
+    privacyBadgeConnects: '會連外網',
+    privacyBadgeNone: '不收',
+    privacyResultsKicker: '所以會有兩個結果',
+    privacyResultOffline: '離線也能記帳，只有匯率會停在最後一次更新',
+    privacyResultDeleteApp: '刪掉 App 或換手機，收據就沒了',
+    privacyExportBoxTitle: '匯出或刪除全部資料',
+    privacyExportBoxDesc: '隨時都能做，不用先問我們',
+    privacyExportBoxCta: '前往',
+    privacyLegalNote:
+      '台灣個資法和日本個人情報保護法給你查詢、更正、刪除資料的權利。這些東西本來就在你手上，直接改、直接刪就好。有問題寄',
+
     // ---- 2b 體驗調整 ----
     todayActionTitle: '今天要辦的事',
     todayActionLine: (n) => `還有 ${n} 張沒辦完`,
@@ -784,7 +837,7 @@ const T = {
     deadlineBannerDetail: (amount, shop) => `¥${amount} 拿不回來 · ${shop}`,
     expiredBadge: '已過期',
     filterPendingBanner: (n) => `${n} 張資料待補`,
-    filterPendingBannerDesc: '待補的收據不算進預估可退稅額。有空時補齊缺的資料。',
+    filterPendingBannerDesc: '待補的不會算進預估可退稅額。有空再把店名和日期填上。',
     pendingShopPlaceholder: '店名待補',
     pendingCapturedOn: (date) => `${date} 拍的`,
     pendingBadge: '資料待補',
@@ -983,13 +1036,11 @@ const T = {
     photoTypeReceiptHint: '証拠として使用、文字認識の対象',
     photoTypeItemLabel: '商品写真',
     photoTypeItemHint: '備忘録のみ、文字認識も金額にも影響なし',
-    photoStorageNote: 'ここに保存されるのは複製で、この端末にだけ置かれます（スマホの写真アプリ内の元の写真ではありません）。レシートを削除すると、App 内の複製も一緒に削除されます。',
+    photoStorageNote: '写真はこの端末にだけ保存されます。レシートを削除すると、写真も一緒に削除されます。',
     zoomHint: 'ピンチで拡大',
     swipeHint: '左右にスワイプで切り替え',
     deletePhotoTitle: 'この写真を削除',
-    deletePhotoBodyMulti: (n) =>
-      `このレシートには他に ${n} 枚の写真があります。この写真を削除しても金額やステータスに影響しません。削除後は元に戻せません。`,
-    deletePhotoBodyLast: 'これは最後の写真です。削除するとこのレシートには写真がなくなります。',
+    deletePhotoBody: 'この写真を削除しても金額やステータスには影響しません。削除すると元に戻せません。',
     note: 'メモ',
     save: '保存',
     edit: '編集',
@@ -1057,8 +1108,6 @@ const T = {
     tripReceipts: '件',
     tripSwitch: 'この旅程に切り替え',
     tripDelete: 'この旅程を削除',
-    tripDeleteConfirm:
-      '削除しますか。レシートも一緒に削除され、元に戻せません。',
     depPrefix: '出発',
     tripPast: '過去の旅程',
     tripNow: '進行中',
@@ -1204,8 +1253,8 @@ const T = {
     dataManageKicker: 'データ',
     dataManageTitle: '書き出しまたは削除',
     dataManageRowDesc: 'バックアップの書き出し、写真の整理、まっさらな状態に戻す。',
-    dataManageDesc:
-      'データはこの端末だけに保存されているので、書き出しも削除もすべてあなたの操作です。当社に通知されることはありません。',
+    dataManageDesc: 'レシートはこの端末の中にあるだけです。バックアップも削除も、ご自身で行ってください。',
+    dataManageOutro: '削除したら元には戻りません。この端末以外に控えはありませんので、ご了承ください。',
     dataManageReceiptCount: (n) => `レシート ${n} 件`,
     dataManagePhotoUsage: (n, size) => `写真 ${n}枚 · ${size}`,
     exportSectionLabel: '書き出し',
@@ -1237,6 +1286,8 @@ const T = {
     exportFailed: '書き出しに失敗しました。もう一度お試しください。',
     exportForTrip: (name) => `${name} · 書き出し`,
     exportForAll: 'すべての旅程 · 書き出し',
+    deleteConfirmDesc: (receipts, photos, trips) =>
+      `レシート ${receipts} 件、写真 ${photos} 枚、旅程 ${trips} 件が一緒に消えます。この端末以外に控えはありません。`,
     deleteConfirmReceiptsRow: (n) => `レシートと税額の記録 ${n} 件`,
     deleteConfirmPhotosRow: (n, size) => `写真 ${n}枚 · ${size}`,
     deleteConfirmTripsRow: (n) => `旅程と空港設定 ${n} 件`,
@@ -1250,6 +1301,50 @@ const T = {
     deletePhotosOnlyTitle: '写真のみ削除しますか？',
     deletePhotosOnlyDesc: (size) => `${size} 節約できます。金額の記録は残ります。`,
     deletePhotosOnlyCta: '写真を削除',
+
+    // ---- Kaeru について ----
+    aboutRowLabel: 'Kaeru について',
+    aboutVersion: (version, date) => `${version} · ${date}`,
+    aboutNameOriginKicker: '名前の由来',
+    aboutNameOriginDesc: '日本語の「かえる」には同時に三つの意味があります。免税の手続きにはこの三つがちょうど当てはまります。',
+    aboutKanji1: '帰る', aboutRomaji1: 'kaeru', aboutMeaning1: '帰宅', aboutMeaningDesc1: '旅程が終わる前に済ませる',
+    aboutKanji2: '換える', aboutRomaji2: 'kaeru', aboutMeaning2: '交換', aboutMeaningDesc2: '払い過ぎた税金を取り戻す',
+    aboutKanji3: '蛙', aboutRomaji3: 'kaeru', aboutMeaning3: 'カエル', aboutMeaningDesc3: 'だからロゴはカエルです',
+    aboutWhatKicker: 'このアプリでできること',
+    aboutWhatDesc:
+      'やることは一つだけです。帰国前に、返ってくるはずの税金を漏れなく計算します。門限に達していないレシート、期限が近いレシート、空港にどれくらい前に着くべきか、すべてここで確認できます。',
+    aboutWhatBoundary:
+      '免税の代行はせず、あなたのお金にも触れません。税関や免税店のシステムとも連携していません。手続きは店舗と空港で行ってください。',
+    aboutEstimateTitle: '税額は概算です',
+    aboutEstimateDesc: '規則は日本国税庁と各免税店の案内に基づきます。店舗ごとの手数料により、実際の返金額は少なくなることがあります。',
+    aboutPrivacyLink: 'プライバシーについて',
+    aboutFeedbackLabel: '不具合の報告・ご意見',
+    aboutFeedbackEmail: 'sueeloveblack@gmail.com',
+
+    // ---- プライバシーについて ----
+    privacyRowLabel: 'プライバシーについて',
+    privacyUpdatedAt: (date) => `更新日 ${date}`,
+    privacyTitle: 'データの保管場所',
+    privacyIntro: 'すべてこの端末の中にあります。Kaeru はレシートを保管するサーバーを持たず、アカウント登録もありません。',
+    privacyRowAmount: 'レシートの金額・店名・購入日',
+    privacyRowPhotos: 'レシートと商品の写真',
+    privacyRowTripSettings: '出発時刻・空港・レートの設定',
+    privacyRowOcr: '文字認識（OCR）',
+    privacyRowRate: 'リアルタイムのレート',
+    privacyRowRateSub: '通貨コードのみ送信。金額は送信しません',
+    privacyRowAnalytics: '利用統計・広告識別子',
+    privacyBadgeLocalOnly: '端末内のみ',
+    privacyBadgeOnDevice: '端末内で処理',
+    privacyBadgeConnects: '通信あり',
+    privacyBadgeNone: '取得しません',
+    privacyResultsKicker: 'つまり二つのことが言えます',
+    privacyResultOffline: 'オフラインでも記録できます。レートだけ最後に更新した値のままです',
+    privacyResultDeleteApp: 'アプリを削除すると、レシートも消えます',
+    privacyExportBoxTitle: 'データの書き出し・削除',
+    privacyExportBoxDesc: 'いつでもできます。当社への連絡は不要です',
+    privacyExportBoxCta: '開く',
+    privacyLegalNote:
+      '台湾の個人資料保護法および日本の個人情報保護法により、データの確認・修正・削除を求める権利があります。データはお使いの端末にありますので、直接変更・削除していただけます。ご不明点は',
 
     // ---- 2b 體驗調整 ----
     todayActionTitle: '今日やること',
@@ -2782,6 +2877,10 @@ export default function App() {
   const [exportOptions, setExportOptions] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deletePhotosOnlyOpen, setDeletePhotosOnlyOpen] = useState(false);
+  // 關於 Kaeru／隱私說明：從設定頁、從關於頁裡的連結都能到隱私說明，
+  // 兩層各自獨立開關，疊法跟上面匯出/刪除那組一樣。
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const [quickAddOn, setQuickAddOn] = useState(false);
   // 快路存完之後的「收據存好了」提示——見 quickSaveDraft。
   // { showDeparturePrompt } | null，departurePrompt 只在「這趟第一張
@@ -2812,6 +2911,8 @@ export default function App() {
   useBackClose(!!exportOptions, () => setExportOptions(null));
   useBackClose(!!deleteConfirm, () => setDeleteConfirm(null));
   useBackClose(deletePhotosOnlyOpen, () => setDeletePhotosOnlyOpen(false));
+  useBackClose(aboutOpen, () => setAboutOpen(false));
+  useBackClose(privacyOpen, () => setPrivacyOpen(false));
   useBackClose(quickAddOn, () => setQuickAddOn(false));
   useBackClose(menuOpen, () => setMenuOpen(false));
   useBackClose(!!openId, () => setOpenId(null));
@@ -3621,6 +3722,7 @@ export default function App() {
               rateBusy={rateBusy}
               rateErr={rateErr}
               onOpenDataManage={() => setDataManageOpen(true)}
+              onOpenAbout={() => setAboutOpen(true)}
             />
           )}
         </main>
@@ -3924,6 +4026,26 @@ export default function App() {
           onConfirm={() => {
             deleteAllPhotos();
             setDeletePhotosOnlyOpen(false);
+          }}
+        />
+      )}
+
+      {aboutOpen && (
+        <AboutSheet
+          t={t}
+          onClose={() => setAboutOpen(false)}
+          onOpenPrivacy={() => setPrivacyOpen(true)}
+        />
+      )}
+
+      {privacyOpen && (
+        <PrivacyInfoSheet
+          t={t}
+          onClose={() => setPrivacyOpen(false)}
+          onOpenDataManage={() => {
+            setPrivacyOpen(false);
+            setAboutOpen(false);
+            setDataManageOpen(true);
           }}
         />
       )}
@@ -6415,6 +6537,7 @@ function SettingsView({
   rateBusy,
   rateErr,
   onOpenDataManage,
+  onOpenAbout,
 }) {
   const rowStyle = (first) => ({
     display: 'block',
@@ -6539,6 +6662,15 @@ function SettingsView({
         <p className="mt-1.5" style={{ color: C.sub, fontSize: '12px', lineHeight: 1.7 }}>
           {t.dataManageRowDesc}
         </p>
+      </button>
+
+      <button
+        onClick={onOpenAbout}
+        className="flex w-full items-center justify-between gap-2"
+        style={rowStyle(false)}
+      >
+        <span style={{ fontSize: '15px', color: C.ink }}>{t.aboutRowLabel}</span>
+        <ChevronRight size={15} style={{ color: C.sub, flexShrink: 0 }} />
       </button>
 
       <p
@@ -6787,6 +6919,10 @@ function DataManageSheet({
             />
           </div>
         </div>
+
+        <p className="mt-6" style={{ fontSize: '11.5px', color: C.sub, lineHeight: 1.8 }}>
+          {t.dataManageOutro}
+        </p>
       </div>
     </FullScreenSheet>
   );
@@ -7029,6 +7165,9 @@ function DeleteConfirmSheet({
       <p className="font-bold" style={{ fontSize: '17px', color: C.ink, lineHeight: 1.4 }}>
         {title}
       </p>
+      <p className="mt-2" style={{ fontSize: '13px', color: C.sub, lineHeight: 1.75 }}>
+        {t.deleteConfirmDesc(scopeItems.length, photoStats.count, scopeTrips.length)}
+      </p>
 
       <div
         className="mt-4 flex flex-col"
@@ -7115,6 +7254,235 @@ function DeletePhotosOnlySheet({ t, photoBytes, onClose, onConfirm }) {
         </button>
       </div>
     </BottomSheet>
+  );
+}
+
+// 畫面 61：關於 Kaeru。三個 kaeru 那段是這頁的主體，用對照表而不是
+// 散文——一句話講三個同音字會糊掉，三列一眼就看懂為什麼標誌是青蛙。
+// 「不代辦退稅、不碰你的錢」要寫清楚：使用者裝一個退稅 App 的第一個
+// 疑慮是「錢會不會經過你們」，這裡是回答這件事最合適的地方，比藏在
+// 條款裡好。
+function AboutSheet({ t, onClose, onOpenPrivacy }) {
+  const rows = [
+    { kanji: t.aboutKanji1, romaji: t.aboutRomaji1, meaning: t.aboutMeaning1, desc: t.aboutMeaningDesc1 },
+    { kanji: t.aboutKanji2, romaji: t.aboutRomaji2, meaning: t.aboutMeaning2, desc: t.aboutMeaningDesc2 },
+    { kanji: t.aboutKanji3, romaji: t.aboutRomaji3, meaning: t.aboutMeaning3, desc: t.aboutMeaningDesc3 },
+  ];
+  return (
+    <FullScreenSheet>
+      <div
+        className="sticky top-0 z-10 flex items-center kaeru-pad"
+        style={{
+          backgroundColor: C.page,
+          borderBottom: `1px solid ${C.ink}`,
+          paddingTop: 'max(16px, env(safe-area-inset-top))',
+          paddingBottom: '16px',
+        }}
+      >
+        <button
+          onClick={onClose}
+          className="flex items-center gap-0.5 font-semibold"
+          style={{ fontSize: '13px', color: C.blueDeep }}
+        >
+          <ChevronLeft size={15} />
+          {t.settings}
+        </button>
+      </div>
+
+      <div className="kaeru-pad py-6">
+        <div className="flex items-center gap-3">
+          <FrogMark size={52} />
+          <div>
+            <p className="font-bold" style={{ fontSize: '15px', letterSpacing: '0.3em', color: C.blueDeep }}>
+              KAERU
+            </p>
+            <p className="mt-1 tabular-nums" style={{ fontSize: '11.5px', color: C.sub }}>
+              {t.aboutVersion('1.0.0', APP_VERSION_DATE)}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-7" style={{ borderTop: `1px solid ${C.ink}`, paddingTop: '16px' }}>
+          <SectionLabel>{t.aboutNameOriginKicker}</SectionLabel>
+          <p className="mt-3" style={{ fontSize: '13px', color: C.ink, lineHeight: 1.9 }}>
+            {t.aboutNameOriginDesc}
+          </p>
+          <div className="mt-2">
+            {rows.map((r, i) => (
+              <div
+                key={i}
+                className="flex items-baseline justify-between gap-3"
+                style={{
+                  padding: '14px 0',
+                  borderBottom: i < rows.length - 1 ? `1px solid ${C.line}` : 'none',
+                }}
+              >
+                <div className="flex items-baseline gap-2">
+                  <span className="font-bold" style={{ fontSize: '19px', color: C.ink }}>
+                    {r.kanji}
+                  </span>
+                  <span style={{ fontSize: '11px', color: C.sub }}>{r.romaji}</span>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold" style={{ fontSize: '13.5px', color: C.ink }}>
+                    {r.meaning}
+                  </p>
+                  <p className="mt-0.5" style={{ fontSize: '11px', color: C.sub }}>
+                    {r.desc}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-7" style={{ borderTop: `1px solid ${C.ink}`, paddingTop: '16px' }}>
+          <SectionLabel>{t.aboutWhatKicker}</SectionLabel>
+          <p className="mt-3" style={{ fontSize: '13px', color: C.ink, lineHeight: 1.9 }}>
+            {t.aboutWhatDesc}
+          </p>
+          <p className="mt-3" style={{ fontSize: '12.5px', color: C.sub, lineHeight: 1.85 }}>
+            {t.aboutWhatBoundary}
+          </p>
+        </div>
+
+        <div className="mt-6" style={{ backgroundColor: C.soft, padding: '14px' }}>
+          <p className="font-bold" style={{ fontSize: '13px', color: C.ink }}>
+            {t.aboutEstimateTitle}
+          </p>
+          <p className="mt-1.5" style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.8 }}>
+            {t.aboutEstimateDesc}
+          </p>
+        </div>
+
+        <div className="mt-6" style={{ borderTop: `1px solid ${C.line}`, paddingTop: '4px' }}>
+          <button
+            onClick={onOpenPrivacy}
+            className="flex w-full items-center justify-between"
+            style={{ padding: '14px 0', borderBottom: `1px solid ${C.line}` }}
+          >
+            <span style={{ fontSize: '14px', color: C.ink }}>{t.aboutPrivacyLink}</span>
+            <ChevronRight size={14} style={{ color: C.sub }} />
+          </button>
+          <div className="flex items-center justify-between" style={{ padding: '14px 0' }}>
+            <span style={{ fontSize: '14px', color: C.ink }}>{t.aboutFeedbackLabel}</span>
+            <a
+              href={`mailto:${t.aboutFeedbackEmail}`}
+              style={{ fontSize: '12.5px', color: C.blueDeep }}
+            >
+              {t.aboutFeedbackEmail}
+            </a>
+          </div>
+        </div>
+      </div>
+    </FullScreenSheet>
+  );
+}
+
+// 畫面 56/57：隱私說明。白話版，不是條文——表格是這一頁的重點，一句
+// 「我們重視你的隱私」沒有資訊量，六列各配一個標籤，使用者三秒就
+// 掃完。標籤一律用線框，不要 clay 填色，這裡沒有一項是警示。
+function PrivacyInfoSheet({ t, onClose, onOpenDataManage }) {
+  const rows = [
+    { label: t.privacyRowAmount, badge: t.privacyBadgeLocalOnly, tone: 'local' },
+    { label: t.privacyRowPhotos, badge: t.privacyBadgeLocalOnly, tone: 'local' },
+    { label: t.privacyRowTripSettings, badge: t.privacyBadgeLocalOnly, tone: 'local' },
+    { label: t.privacyRowOcr, badge: t.privacyBadgeOnDevice, tone: 'local' },
+    { label: t.privacyRowRate, badge: t.privacyBadgeConnects, sub: t.privacyRowRateSub, tone: 'connects' },
+    { label: t.privacyRowAnalytics, badge: t.privacyBadgeNone, tone: 'local' },
+  ];
+  return (
+    <FullScreenSheet>
+      <div
+        className="sticky top-0 z-10 flex items-center justify-between kaeru-pad"
+        style={{
+          backgroundColor: C.page,
+          borderBottom: `1px solid ${C.ink}`,
+          paddingTop: 'max(16px, env(safe-area-inset-top))',
+          paddingBottom: '16px',
+        }}
+      >
+        <button
+          onClick={onClose}
+          className="flex items-center gap-0.5 font-semibold"
+          style={{ fontSize: '13px', color: C.blueDeep }}
+        >
+          <ChevronLeft size={15} />
+          {t.settings}
+        </button>
+        <span style={{ fontSize: '11px', color: C.sub }}>
+          {t.privacyUpdatedAt(PRIVACY_UPDATED_AT)}
+        </span>
+      </div>
+
+      <div className="kaeru-pad py-6">
+        <h1 className="font-bold" style={{ fontSize: '21px', color: C.ink }}>
+          {t.privacyTitle}
+        </h1>
+        <p className="mt-2" style={{ fontSize: '13px', color: C.ink, lineHeight: 1.85 }}>
+          {t.privacyIntro}
+        </p>
+
+        <div className="mt-5" style={{ borderTop: `1px solid ${C.ink}` }}>
+          {rows.map((r, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between gap-3"
+              style={{ padding: '12px 0', borderBottom: `1px solid ${C.line}` }}
+            >
+              <div className="min-w-0">
+                <p style={{ fontSize: '13.5px', color: C.ink }}>{r.label}</p>
+                {r.sub && (
+                  <p className="mt-0.5" style={{ fontSize: '11px', color: C.sub }}>
+                    {r.sub}
+                  </p>
+                )}
+              </div>
+              <Badge tone="outline">{r.badge}</Badge>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6">
+          <SectionLabel>{t.privacyResultsKicker}</SectionLabel>
+          <p className="mt-3" style={{ fontSize: '13px', color: C.ink, lineHeight: 1.85 }}>
+            {t.privacyResultOffline}
+          </p>
+          <p className="mt-2 font-bold" style={{ fontSize: '13px', color: C.ink, lineHeight: 1.85 }}>
+            {t.privacyResultDeleteApp}
+          </p>
+        </div>
+
+        <button
+          onClick={onOpenDataManage}
+          className="mt-6 flex w-full items-center justify-between gap-3 text-left"
+          style={{ backgroundColor: C.soft, padding: '14px' }}
+        >
+          <div>
+            <p className="font-bold" style={{ fontSize: '13px', color: C.ink }}>
+              {t.privacyExportBoxTitle}
+            </p>
+            <p className="mt-1" style={{ fontSize: '11.5px', color: C.sub }}>
+              {t.privacyExportBoxDesc}
+            </p>
+          </div>
+          <span
+            className="shrink-0 font-bold"
+            style={{ fontSize: '12.5px', color: C.blueDeep }}
+          >
+            {t.privacyExportBoxCta} ›
+          </span>
+        </button>
+
+        <p className="mt-6" style={{ fontSize: '11.5px', color: C.sub, lineHeight: 1.85 }}>
+          {t.privacyLegalNote}{' '}
+          <a href={`mailto:${t.aboutFeedbackEmail}`} style={{ color: C.blueDeep }}>
+            {t.aboutFeedbackEmail}
+          </a>
+          {t.privacyLegalNote.endsWith('。') ? '' : '。'}
+        </p>
+      </div>
+    </FullScreenSheet>
   );
 }
 
@@ -7317,7 +7685,7 @@ function TripSheet({
                   lineHeight: 1.7,
                 }}
               >
-                {t.tripDeleteConfirm}
+                {t.deleteTripWarning(countOf(active.id))}
               </p>
               <div className="mt-2.5 flex gap-2">
                 <button
@@ -10706,8 +11074,7 @@ function PhotoLightbox({
     }
   }
 
-  const deleteBody =
-    photos.length > 1 ? t.deletePhotoBodyMulti(photos.length - 1) : t.deletePhotoBodyLast;
+  const deleteBody = t.deletePhotoBody;
 
   return (
     <div
