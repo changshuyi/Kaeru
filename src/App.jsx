@@ -19,6 +19,8 @@ import {
   Menu,
   Calendar as CalIcon,
   MapPin,
+  Image as ImageIcon,
+  Camera as CameraIcon,
 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
@@ -208,6 +210,24 @@ const MAIN_KEY = 'jptax:v2';
 const photoKey = (id) => `jptax:photo:${id}`;
 const STAGES = ['purchased', 'registered', 'verified', 'refunded'];
 const MAX_PHOTOS = 4; // 一張收據最多存幾張照片
+
+// 照片現在帶型別：'receipt'（憑證，跑過 OCR、是金額來源）／'item'
+// （物品照片，純備忘，不跑辨識、不影響金額）。舊資料存的是單純的
+// dataURL 字串陣列，沒有型別這個概念——讀進來一律當作 'receipt'，
+// 這是安全的預設值：舊資料本來就是拿來當憑證用的，不會因為升級就
+// 突然被歸類成備忘照片而在畫面上消失或跑錯分組。
+function normalizePhotoEntry(p) {
+  if (typeof p === 'string') return { src: p, type: 'receipt' };
+  if (p && typeof p === 'object' && typeof p.src === 'string') {
+    return { src: p.src, type: p.type === 'item' ? 'item' : 'receipt' };
+  }
+  return null;
+}
+function normalizePhotoList(list) {
+  return (Array.isArray(list) ? list : [])
+    .map(normalizePhotoEntry)
+    .filter(Boolean);
+}
 
 // refundMethod 這個欄位是後來才加的，舊收據沒存過這個值，要從當時的
 // status 反推。只有 status 剛好停在「已登記」（STAGES 索引 1）才是
@@ -432,17 +452,27 @@ const T = {
     usePhoto: '使用',
     useWithAmount: '使用這張並帶入金額',
     useOnly: '使用這張',
+    ocrRecognizing: '辨識中，請稍候…',
     toolAdjustBorder: '調整邊框',
     toolRotate: '旋轉',
     toolContrast: '增強對比',
     edgeAutoOk: '邊框已自動抓好',
     ocrAmountLabel: '從照片讀到的金額',
     ocrHint: '可以直接帶入表單，之後仍可手動改',
-    reorderPhotos: '整理',
-    doneReorder: '完成',
-    addOneMore: '再加 1 張',
-    thumbHint: (n) => `點縮圖放大檢視，右上角 ✕ 刪除。最多 ${n} 張。`,
     photoDeleteHint: (n) => `右上角 ✕ 刪除。最多 ${n} 張。`,
+    photoSectionLabel: (n) => `照片　${n} 張`,
+    addPhotoCta: '＋ 加照片',
+    photoGroupReceipt: (n) => `收據照片　${n} 張`,
+    photoGroupItem: (n) => `物品照片　${n} 張`,
+    photoTypeReceiptBadge: '憑證',
+    photoTypeHint: '長按任一張可以改型別。物品照片不跑辨識，也不影響金額。',
+    photoTypeWhyTitle: '為什麼要分兩種',
+    photoTypeWhyDesc: '憑證那張要拿給海關看，也是金額的來源；物品照片只是備忘。',
+    photoTypeSheetTitle: '這張照片是？',
+    photoTypeReceiptLabel: '收據照片',
+    photoTypeReceiptHint: '憑證，跑辨識、是金額來源',
+    photoTypeItemLabel: '物品照片',
+    photoTypeItemHint: '純備忘，不跑辨識、不影響金額',
     photoStorageNote: '這裡存的是另存的副本，只在這台裝置上，不是手機相簿裡的原始照片。刪掉收據時，App 裡的副本會一起刪掉。',
     zoomHint: '雙指縮放看細節',
     swipeHint: '左右滑動換照片',
@@ -510,7 +540,7 @@ const T = {
     newTrip: '新增行程',
     tripName: '行程名稱',
     tripNamePh: '例如 大阪 11 月',
-    tripUnnamed: '還沒命名的行程',
+    tripUnnamed: '未命名行程',
     unfilled: '未填',
     noDeparture: '未設定回程班機時間',
     tripReceipts: '張收據',
@@ -543,6 +573,7 @@ const T = {
     statusRefunded: '張已退款',
     statusDead: '張失效',
     deleteTripWarning: (n) => `刪除行程會一起刪掉這 ${n} 張收據和 App 裡存的照片副本，無法復原。`,
+    tripDeleteMinNote: '至少要保留一個行程，新增另一個之後才能刪除這個。',
     emptyUnnamedKicker: '這趟行程',
     emptyUnnamedTitle: '還沒有名字',
     emptyUnnamedDesc:
@@ -668,11 +699,21 @@ const T = {
     deadlineBannerDetail: (amount, shop) => `¥${amount} 拿不回來 · ${shop}`,
     expiredBadge: '已過期',
     filterPendingBanner: (n) => `${n} 張資料待補`,
-    filterPendingBannerDesc: '待補的收據不算進預估可退稅額。有空時補上店名和日期。',
+    filterPendingBannerDesc: '待補的收據不算進預估可退稅額。有空時補齊缺的資料。',
     pendingShopPlaceholder: '店名待補',
     pendingCapturedOn: (date) => `${date} 拍的`,
     pendingBadge: '資料待補',
+    // 跟 pendingBadge 不一樣——那個是整張收據層級的狀態（清單頁用），
+    // 這個是單一欄位層級（快速新增畫面裡「店名和日期」那一列），設計
+    // 稿（CLAUDE_CODE_DELTA_體驗調整.md 第 4 節）寫的是「待補」兩個
+    // 字，不是「資料待補」，兩個情境的文字本來就不一樣，不能共用一個
+    // 翻譯 key。
+    pendingFieldBadge: '待補',
+    pendingAmountBadge: '金額待補',
+    pendingAmountPlaceholder: '金額待補',
     pendingFillLink: '補上店名和日期',
+    pendingFillAmountLink: '補上金額',
+    pendingFillAllLink: '補上店名、日期和金額',
     quickAddTitle: '拍好了',
     quickAddSave: '存起來',
     quickAddGotAmount: '讀到金額了',
@@ -686,7 +727,29 @@ const T = {
     pendingFieldsLabel: '店名和日期',
     pendingFieldsDesc: '照片讀不到，晚點再補',
     quickSaveCta: '存起來，晚點再補',
+    quickSaveCtaAmountPending: '存起來，金額晚點補',
+    quickSaveCtaAmountPendingHint: '金額補上才會算進預估可退稅額',
     quickFullFormCta: '現在就填完整資料',
+    quickAddNoAmountBadge: '沒讀到金額',
+    quickAddInclPlaceholder: '照收據上的合計填',
+    quickAddInclPlaceholderNoPhoto: '記得的話自己填，不記得也可以先空著',
+    quickAddRateRequiredBadge: '稅率待選',
+    quickAddManualRateHint: '這個你自己知道，不用等辨識。選不出來先留著。',
+    quickAddNoAmountDesc: '照片有點模糊，金額沒讀出來。現在填，或回飯店再補都可以。',
+    quickAddNoAmountDescItemPhoto:
+      '這張存成物品照片了，沒有收據可以帶入金額。記得的話現在填，不記得也可以先存起來、晚點再補。',
+    retakePhotoCta: '重拍一張',
+    quickAddNotReceiptBadge: '不像收據',
+    quickAddNotReceiptTitle: '這張看起來不像收據',
+    quickAddNotReceiptDesc:
+      '沒有讀到金額和店名。如果這是買到的東西，可以存成物品照片；如果是收據，換個角度、把整張拍進去會比較好讀。',
+    quickAddNotReceiptWhatLabel: '物品照片是什麼',
+    quickAddNotReceiptTip1: '不跑辨識、不影響金額，只是幫你記得這筆買了什麼',
+    quickAddNotReceiptTip2: '一張收據可以放多張，回國對帳時看得出來是哪一筆',
+    quickAddNotReceiptTip3: '標錯了隨時可以改回收據照片',
+    quickAddSaveAsItemCta: '存成物品照片',
+    quickAddRetakeReceiptCta: '重拍收據',
+    quickAddKeepAsReceiptCta: '還是當收據，我自己填金額',
     refundCheckTitle: '錢進來了嗎',
     refundCheckSubtitle: (tripName, days) => `${tripName} · 回程後 ${days} 天`,
     refundCheckDesc: (n) =>
@@ -700,6 +763,35 @@ const T = {
     emptyUnnamedSimKicker: '還沒搞懂規則？',
     emptyUnnamedSimDesc:
       '跟著走一趟，看你能退多少。門檻、失效、期限，走完就懂了。',
+
+    // ---- 2b 還沒設定回程時間 ----
+    noDepartureTitle: '還不知道你什麼時候回國',
+    noDepartureDesc:
+      '填了回程時間才能倒數，也才算得出每張收據的期限。行程名稱可以不用取。',
+    setDepartureCta: '設定回程時間',
+    laterCta: '晚點',
+    savedCountLabel: (n) => `已存 ${n} 張收據`,
+    viewListCta: '看清單',
+    cantCalcYetLabel: '還算不出來的事',
+    cantCalcDeadlinePerReceipt: '每張收據還剩幾天',
+    deadlinePendingBadge: '期限待定',
+    cantCalcDepartDayFlow: '回程當天的流程與提醒',
+    notSetBadge: '待設定',
+    cantCalcAirportQueue: '出境機場能不能辦、要不要排隊',
+    cantCalcNote:
+      '收據先存著沒問題，資料都在。回程時間補上之後，上面這些會一起算出來。',
+    deadlinePendingBanner: (n) => `${n} 張收據都還沒有期限`,
+    deadlinePendingBannerDesc: '期限是從回程時間往回算的',
+    deadlinePendingSetCta: '設定',
+    savedToastTitle: '收據存好了',
+    savedToastDeparturePrompt: '順便設定回程時間？填了才能倒數和算期限。',
+    retakeOneMoreCta: '再拍一張',
+    deadlinePendingWhatLabel: '期限待定是什麼意思',
+    deadlinePendingTip1: '收據本身沒問題，金額照算，只是算不出還剩幾天',
+    deadlinePendingTip2: '點這個標籤直接跳去填回程時間，填完全部一起換成天數',
+    deadlinePendingTip3: '不要猜一個日期填進去。猜錯比空著更危險',
+    deadlinePendingNote:
+      '對帳時人通常在飯店，那才是填航班的好時機 — 所以提醒放在這裡，不是放在店裡。',
   },
   ja: {
     appName: 'Kaeru',
@@ -785,17 +877,27 @@ const T = {
     usePhoto: '使用',
     useWithAmount: 'この写真を使って金額を入力',
     useOnly: 'この写真を使う',
+    ocrRecognizing: '認識中です、少々お待ちください…',
     toolAdjustBorder: '枠を調整',
     toolRotate: '回転',
     toolContrast: 'コントラスト強化',
     edgeAutoOk: '枠を自動検出済み',
     ocrAmountLabel: '写真から読み取った金額',
     ocrHint: 'そのままフォームに入力できます。後で手動修正も可能',
-    reorderPhotos: '並び替え',
-    doneReorder: '完了',
-    addOneMore: 'もう 1 枚追加',
-    thumbHint: (n) => `サムネイルをタップで拡大、右上の ✕ で削除。最大 ${n} 枚。`,
     photoDeleteHint: (n) => `右上の ✕ で削除。最大 ${n} 枚。`,
+    photoSectionLabel: (n) => `写真　${n}枚`,
+    addPhotoCta: '＋ 写真を追加',
+    photoGroupReceipt: (n) => `レシート写真　${n}枚`,
+    photoGroupItem: (n) => `商品写真　${n}枚`,
+    photoTypeReceiptBadge: '証拠',
+    photoTypeHint: '長押しで種類を変更できます。商品写真は文字認識をせず、金額にも影響しません。',
+    photoTypeWhyTitle: 'なぜ2種類に分けるのか',
+    photoTypeWhyDesc: 'レシート写真は税関提示用で金額の根拠にもなります。商品写真は備忘録です。',
+    photoTypeSheetTitle: 'この写真の種類は？',
+    photoTypeReceiptLabel: 'レシート写真',
+    photoTypeReceiptHint: '証拠として使用、文字認識の対象',
+    photoTypeItemLabel: '商品写真',
+    photoTypeItemHint: '備忘録のみ、文字認識も金額にも影響なし',
     photoStorageNote: 'ここに保存されるのは複製で、この端末にだけ置かれます（スマホの写真アプリ内の元の写真ではありません）。レシートを削除すると、App 内の複製も一緒に削除されます。',
     zoomHint: 'ピンチで拡大',
     swipeHint: '左右にスワイプで切り替え',
@@ -898,6 +1000,7 @@ const T = {
     statusRefunded: '件 返金済み',
     statusDead: '件 失効',
     deleteTripWarning: (n) => `旅程を削除すると、この ${n} 件のレシートと App 内に保存された写真の複製も一緒に削除されます。元に戻せません。`,
+    tripDeleteMinNote: '旅程は最低 1 件必要です。もう 1 件追加すると、これを削除できます。',
     emptyUnnamedKicker: 'この旅程',
     emptyUnnamedTitle: 'まだ名前がありません',
     emptyUnnamedDesc:
@@ -1025,11 +1128,16 @@ const T = {
     expiredBadge: '期限切れ',
     filterPendingBanner: (n) => `${n} 件の情報待ち`,
     filterPendingBannerDesc:
-      '情報待ちのレシートは返金見込み額に含まれません。時間があるときに店舗名と購入日を入力してください。',
+      '情報待ちのレシートは返金見込み額に含まれません。時間があるときに不足している情報を入力してください。',
     pendingShopPlaceholder: '店舗名 未入力',
     pendingCapturedOn: (date) => `${date} 撮影`,
     pendingBadge: '情報待ち',
+    pendingFieldBadge: '未入力',
+    pendingAmountBadge: '金額未入力',
+    pendingAmountPlaceholder: '金額未入力',
     pendingFillLink: '店舗名と購入日を入力',
+    pendingFillAmountLink: '金額を入力',
+    pendingFillAllLink: '店舗名・購入日・金額を入力',
     quickAddTitle: '撮影完了',
     quickAddSave: '保存',
     quickAddGotAmount: '金額を読み取りました',
@@ -1044,7 +1152,30 @@ const T = {
     pendingFieldsLabel: '店舗名と購入日',
     pendingFieldsDesc: '写真から読み取れませんでした。後で入力してください',
     quickSaveCta: '保存して後で入力',
+    quickSaveCtaAmountPending: '保存して金額は後で入力',
+    quickSaveCtaAmountPendingHint: '金額を入力すると返金見込み額に反映されます',
     quickFullFormCta: '今すぐ全部入力する',
+    quickAddNoAmountBadge: '金額を読み取れませんでした',
+    quickAddInclPlaceholder: 'レシートの合計を入力',
+    quickAddInclPlaceholderNoPhoto: '分かれば入力、分からなければ空欄でも大丈夫です',
+    quickAddRateRequiredBadge: '税率も選択してください',
+    quickAddManualRateHint: '税率は自分で分かるはず。判定を待たなくて大丈夫。選べなければそのままでも保存できます。',
+    quickAddNoAmountDesc:
+      '写真が少し不明瞭で、金額を読み取れませんでした。今すぐ入力しても、後でホテルに戻ってから入力しても構いません。',
+    quickAddNoAmountDescItemPhoto:
+      'この写真は商品写真として保存しました。レシートがないので金額は自動入力されません。分かれば今すぐ入力、分からなければ保存して後で入力しても構いません。',
+    retakePhotoCta: '撮り直す',
+    quickAddNotReceiptBadge: 'レシートではないようです',
+    quickAddNotReceiptTitle: 'この写真、レシートではないようです',
+    quickAddNotReceiptDesc:
+      '金額も店舗名も読み取れませんでした。購入した商品の写真なら「商品写真」として保存できます。レシートなら、角度を変えて全体を写すと読み取りやすくなります。',
+    quickAddNotReceiptWhatLabel: '商品写真とは',
+    quickAddNotReceiptTip1: '文字認識をせず、金額にも影響しません。買った物の記録用です',
+    quickAddNotReceiptTip2: '1件のレシートに複数枚保存できます。帰国後の確認に便利です',
+    quickAddNotReceiptTip3: '種類はいつでもレシート写真に変更できます',
+    quickAddSaveAsItemCta: '商品写真として保存',
+    quickAddRetakeReceiptCta: 'レシートを撮り直す',
+    quickAddKeepAsReceiptCta: 'このままレシートとして扱い、金額を自分で入力する',
     refundCheckTitle: '返金は届きましたか',
     refundCheckSubtitle: (tripName, days) => `${tripName} · 帰国後 ${days} 日`,
     refundCheckDesc: (n) =>
@@ -1058,6 +1189,38 @@ const T = {
     emptyUnnamedSimKicker: 'ルールがまだよくわからない？',
     emptyUnnamedSimDesc:
       '歩いてみれば、いくら返ってくるかわかります。下限・無効・期限、歩き終わればわかります。',
+
+    // ---- 2b 出発便の時間が未設定 ----
+    noDepartureTitle: '帰国日がまだ分かりません',
+    noDepartureDesc:
+      '出発便の時間を入力すると、カウントダウンと各レシートの期限が計算できるようになります。旅程の名前は設定不要です。',
+    setDepartureCta: '出発時刻を設定',
+    laterCta: '後で',
+    savedCountLabel: (n) => `${n} 件のレシートを保存済み`,
+    viewListCta: 'リストを見る',
+    cantCalcYetLabel: 'まだ計算できないこと',
+    cantCalcDeadlinePerReceipt: '各レシートの残り日数',
+    deadlinePendingBadge: '期限未定',
+    cantCalcDepartDayFlow: '出発当日の流れとお知らせ',
+    notSetBadge: '未設定',
+    cantCalcAirportQueue: '出国時の手続きや混雑状況',
+    cantCalcNote:
+      'レシートは保存済みなので大丈夫です、データは全部残っています。出発便の時間を入力すると、上記がまとめて計算されます。',
+    deadlinePendingBanner: (n) => `${n} 件のレシートの期限が未定です`,
+    deadlinePendingBannerDesc: '期限は出発便の時間から逆算されます',
+    deadlinePendingSetCta: '設定',
+    savedToastTitle: 'レシートを保存しました',
+    savedToastDeparturePrompt:
+      'ついでに出発便の時間を設定しますか？入力するとカウントダウンと期限が計算できます。',
+    retakeOneMoreCta: 'もう1枚撮影',
+    deadlinePendingWhatLabel: '期限未定とはどういうことか',
+    deadlinePendingTip1:
+      'レシート自体に問題はなく、金額もそのまま計算されます。ただ残り日数だけ分かりません',
+    deadlinePendingTip2:
+      'このタグをタップすると出発便の時間の入力に進みます。入力すると一括で日数表示に変わります',
+    deadlinePendingTip3: '日付を当て推量で入力しないでください。誤った日付は空欄より危険です',
+    deadlinePendingNote:
+      '照合作業は通常ホテルで行うもの — フライト情報の入力にはそちらが向いているので、このお知らせは店頭ではなくここに置いています。',
   },
 };
 
@@ -1635,13 +1798,17 @@ function daysLeft(dateStr) {
   return Math.round((d - now) / 86400000);
 }
 
-// 快速新增（先拍照晚點補）存下來、OCR 沒讀到店名的收據——用「店名是
-// 空的」這個天然、不用額外欄位的訊號判斷，一旦使用者補上店名，這張
-// 就自動不再是待補狀態，不用另外清一個旗標。完整表單本來就規定店名
-// 是必填，正常流程永遠不會存出一張空店名的收據，所以這個判斷不會
-// 誤判到既有資料。
+// 待補：店名是空的，或金額還沒填（incl 是 0／未設）——兩個都用「資料
+// 本身長什麼樣」這個天然訊號判斷，不用另外開欄位去記「這張是不是待
+// 補」。店名待補是原本就有的規則：完整表單本來就規定店名必填，正常
+// 流程不會存出空店名的收據，所以這個判斷不會誤判到既有資料。金額待補
+// 是後來加的：快速新增現在容許「只有照片、金額晚點補」也能存（見
+// QuickAddFlow），這種收據存進來時 incl 就是 0，跟已經填好金額的收據
+// 用同一個「incl 是不是 0」訊號分開，一旦補上金額，這張自動不再是
+// 待補狀態。兩者都待補、只有其中一個待補，都算待補——這張收據還不能
+// 拿去算帳（分組、門檻判定、預估可退稅額），只要有一項沒填就是。
 function isPendingInfo(it) {
-  return !it.shop || !it.shop.trim();
+  return !it.shop || !it.shop.trim() || !it.incl;
 }
 
 // 已經超過 90 天期限、還沒真的退到錢、也不是已在境內消費（那個是另一
@@ -1697,7 +1864,16 @@ function compressImageSrc(src, maxSide = 1000, quality = 0.6) {
       resolve(c.toDataURL('image/jpeg', quality));
     };
     img.onerror = reject;
-    img.crossOrigin = 'anonymous';
+    // 這裡曾經設 img.crossOrigin = 'anonymous'——那是為了避免畫到
+    // canvas 上的圖是「真的跨來源」時 toDataURL 被瀏覽器擋掉
+    // （tainted canvas）。但這個函式實際餵進來的來源只有兩種：data:
+    // URL（FileReader/掃描結果，本來就不算跨來源）跟 Capacitor 原生端
+    // 給的本機檔案路徑（相簿/相機的 webPath、uri）——後者對 WebView
+    // 來說本來就算同來源，設了 crossOrigin 反而可能讓某些機型/WebView
+    // 版本直接讀取失敗（onerror 被觸發），這個函式的呼叫端（相簿多選
+    // 時「第一張以外」的照片、OCR 前置轉檔）都用 try/catch 靜默吞掉
+    // 失敗，使用者只會發現「選了 3 張卻只存進 2 張」，完全看不出原因。
+    // 拿掉這行——目前所有呼叫情境都不需要它，只有壞處沒有好處。
     img.src = src;
   });
 }
@@ -1909,8 +2085,23 @@ function parseReceiptOCR(text) {
     // 這種列商品件數、不是列金額的行，不然會把件數誤當金額抓進來。
     // 這兩種格式都找不到，金額就先不填，但不要整個放棄——店名跟日期
     // 是完全獨立的規則，不需要靠金額才能抓，下面繼續往下走。
-    const totalRe = /(?:合計(?!點數|点数)|お会計|ご請求金額|總額|総額)[^\d]{0,8}([\d,]{2,9})\s*円?/;
-    const totalMatch = norm.match(totalRe);
+    //
+    // 這裡曾經吃過一個虧：OCR 偶爾會把「¥」符號本身誤讀成別的字元，
+    // 而且不一定是誤讀成非數字字元（那樣還好，反正間隔比對會跳過）
+    // ——實測遇過直接誤讀成數字「4」，緊貼在真正金額前面，跟間隔比對
+    // 允許的「任何非數字字元」混在一起，被整段吃進金額，讀出一個多一
+    // 位數、完全錯誤的天文數字（「¥21,800」被讀成「421,800」）。要擋
+    // 掉這個誤讀，不能只是放寬或縮窄間隔字元數，得真的比對到「¥/￥」
+    // 這個符號本身才算數——如果 OCR 把 ¥ 讀壞了，寧可整條不比對成功，
+    // 讀不到總比讀錯安全。這裡拆成兩種收據慣例分別處理，互不影響：
+    //   1) 標籤後面直接接「¥金額」、沒有「円」字尾——一定要抓到真正
+    //      的 ¥/￥ 符號才算數。
+    //   2) 標籤後面接「金額円」、沒有 ¥ 符號——這種格式本來就沒有 ¥
+    //      符號可以誤讀，維持原本寬鬆的間隔比對就好。
+    const totalLabel = '(?:合計(?!點數|点数)|お会計|ご請求金額|總額|総額)';
+    const yenPrefixRe = new RegExp(`${totalLabel}[^\\d¥￥]{0,8}[¥￥]\\s*([\\d,]{2,9})`);
+    const yenSuffixRe = new RegExp(`${totalLabel}[^\\d]{0,8}([\\d,]{2,9})\\s*円`);
+    const totalMatch = norm.match(yenPrefixRe) || norm.match(yenSuffixRe);
     const amt = totalMatch ? Number(totalMatch[1].replace(/,/g, '')) : 0;
     if (amt > 0) {
       result.rate = 10;
@@ -1938,6 +2129,60 @@ function parseReceiptOCR(text) {
     return null;
   }
   return result;
+}
+
+// 判斷「這張看起來像不像收據」，只用來決定要不要跳「不像收據」那個
+// 分支（見 QuickAddFlow），故意做得很粗——不是要精準分類，是要抓出
+// 「這張顯然不是收據」的明顯案例（例如拍到的是買到的東西本身），同時
+// 放過「這是收據、只是角度/光線不好，OCR 結構化解析失敗」的情況，讓
+// 那種情況照舊走「讀不到，手動補」那條路，不要被誤導去問使用者「這是
+// 不是收據」。
+//
+// 這裡原本只看「有沒有連續 3 個數字＋至少 2 行字」，太寬鬆——任何隨機
+// 數字（電話號碼、ID、時間戳、螢幕解析度）只要湊到 3 位數就會誤判成
+// 「像收據」。實測踩到兩次：一次拍桌面截圖，某個視窗標題剛好有數字；
+// 一次拍到螢幕上顯示的除錯 log，log 裡一段呼叫序號（9 位數）就把整
+// 張誤判成收據，導致明明不是收據卻沒有跳出「不像收據」畫面。改成看
+// 「數字旁邊有沒有金額符號（円/¥/%）」——這是收據排版特有的訊號，隨機
+// 文字裡的數字不會剛好緊貼著這些符號；退一步再看有沒有「合計/対象」
+// 這類收據關鍵字（防住標籤跟金額被 OCR 拆到不同行、抓不到緊貼符號的
+// 情況）。兩個條件都沒有，才夠格說「不像收據」。
+function looksLikeReceiptText(text) {
+  if (!text) return false;
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return false;
+  const hasCurrencyNumber =
+    /\d[\d,]*\s*(?:円|¥|￥|%|％)/.test(text) || /(?:¥|￥)\s*[\d,]*\d/.test(text);
+  const hasReceiptKeyword = /(合計|対象|對象|お会計|レシート|receipt|小計|總額|総額)/i.test(
+    text,
+  );
+  return hasCurrencyNumber || hasReceiptKeyword;
+}
+
+// 幫「這張新照片預設要標成收據還是物品」猜一個型別——只有 QuickAddFlow
+// 第一張照片會走完整的「不像收據」互動分支，其他所有加照片的地方
+// （選相簿多選時第一張以外的照片、詳情頁/完整表單的「+加照片」）新
+// 照片本來一律硬寫死當「收據照片」，完全沒有用到 OCR 內容去判斷——
+// 實測過：食物、飲料、店面這種明顯不是收據的照片，一樣被歸類成收據
+// 照片，使用者才會覺得「怎�麼都跑到收據那邊」。這裡跟 PhotoConfirmSheet
+// 用同一套判斷（重組成閱讀順序、看像不像收據），只是拿掉裁切/使用者
+// 互動那一段，純粹用來猜一個比「全部都當收據」合理的預設值——猜錯的話
+// 使用者長按縮圖還是能改，不是最終定案。
+async function guessPhotoType(b64Src) {
+  try {
+    const res = await ReceiptScanner.recognizeText({ image: b64Src });
+    const reconstructed = res?.lines?.length ? reconstructRowsFromLines(res.lines) : '';
+    const forParse = reconstructed || res?.text || '';
+    return looksLikeReceiptText(forParse) ? 'receipt' : 'item';
+  } catch (err) {
+    // 辨識本身失敗（權限、原生端出錯）跟「真的不像收據」是不一樣的
+    // 兩件事，沒有任何文字可以判斷時，寧可維持原本「當收據」的預設，
+    // 不要因為辨識失敗就把一張可能真的是收據的照片誤標成物品照片。
+    return 'receipt';
+  }
 }
 
 /* ---------------- primitives ---------------- */
@@ -2018,7 +2263,7 @@ function Ticket({ children, tone = 'normal', onClick, separator }) {
   return (
     <El
       onClick={onClick}
-      className="block w-full px-3.5 pb-3.5 pt-3 text-left"
+      className="relative block w-full px-3.5 pb-3.5 pt-3 text-left"
       style={{
         backgroundColor: bg,
         borderTop: separator ? `1px dashed ${C.line}` : 'none',
@@ -2412,6 +2657,10 @@ export default function App() {
   const [deadline3dSheetOpen, setDeadline3dSheetOpen] = useState(false);
   const [refundCheckOpen, setRefundCheckOpen] = useState(false);
   const [quickAddOn, setQuickAddOn] = useState(false);
+  // 快路存完之後的「收據存好了」提示——見 quickSaveDraft。
+  // { showDeparturePrompt } | null，departurePrompt 只在「這趟第一張
+  // 收據、且還沒填回程時間」時是 true，只出現這一次。
+  const [savedToast, setSavedToast] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tab, setTab] = useState('home');
   const [editing, setEditing] = useState(null);
@@ -2517,12 +2766,17 @@ export default function App() {
             try {
               const p = await window.storage.get(photoKey(it.id));
               if (p && p.value) {
-                // 舊資料是單張 dataURL 字串；新格式是 JSON 陣列（最多 4 張）
+                // 舊資料是單張 dataURL 字串，或字串陣列（最多 4 張）；
+                // 更早之前存的可能連陣列都不是，是單一字串——三種形式
+                // 都要收得住。normalizePhotoList 統一轉成 {src,type}，
+                // 讀不出型別的（所有舊資料都是這樣）預設當 'receipt'。
                 try {
                   const parsed = JSON.parse(p.value);
-                  map[it.id] = Array.isArray(parsed) ? parsed : [p.value];
+                  map[it.id] = normalizePhotoList(
+                    Array.isArray(parsed) ? parsed : [p.value],
+                  );
                 } catch (e) {
-                  map[it.id] = [p.value];
+                  map[it.id] = normalizePhotoList([p.value]);
                 }
               }
             } catch (e) {}
@@ -2568,6 +2822,19 @@ export default function App() {
     }
     return out;
   }, [tripItems]);
+
+  // 收據卡右下角要顯示「這張收據附了幾張物品照片」，但卡片本身完全不
+  // 需要照片內容（base64 資料很大，列表卷動時每張卡都吃到會很浪費）——
+  // 只算數量、不把整包 photos 傳下去，清單重新渲染時也不會被照片資料
+  // 拖慢。
+  const itemPhotoCounts = useMemo(() => {
+    const m = {};
+    for (const id of Object.keys(photos)) {
+      const n = (photos[id] || []).filter((p) => p && p.type === 'item').length;
+      if (n > 0) m[id] = n;
+    }
+    return m;
+  }, [photos]);
 
   function taxOf(it) {
     // 這張收據理論上能退的稅額上限：含稅金額－稅抜金額。
@@ -2618,6 +2885,13 @@ export default function App() {
     return { count: list.length, totalIncl, pending, refunded, dead };
   }
 
+  // 期限「還剩幾天」概念上是從回程時間往回算的——沒有回程時間，這個
+  // 數字對使用者沒有實際意義：90 天免稅期限是死的政府規則，但使用者
+  // 真正要知道的是「我的班機起飛前趕不趕得上」，這件事離不開回程時間。
+  // 沒有回程時間卻硬算出一個「還剩 87 天」，看起來篤定、其實只是巧合
+  // 湊出來的數字（也許他 5 天後就要飛了），比誠實顯示「待定」更危險。
+  // 見 CLAUDE_CODE_DELTA_未設定回程時間.md。
+  const hasDeparture = !!activeTrip?.departure;
   const stats = useMemo(() => {
     let totalIncl = 0,
       refundable = 0,
@@ -2656,7 +2930,7 @@ export default function App() {
       // 跟最近到期倒數，會把已經失效、退不了稅的收據也算進去。
       if (it.status !== 'refunded' && !it.consumed && !pendingInfo && !expired) {
         pendingCount++;
-        const d = daysLeft(it.date);
+        const d = hasDeparture ? daysLeft(it.date) : null;
         if (d !== null && (minDays === null || d < minDays)) minDays = d;
         if (d !== null && d >= 0 && d <= 14) deadlineSoonList.push({ it, d });
       }
@@ -2687,7 +2961,7 @@ export default function App() {
       todoTax,
       deadlineSoon,
     };
-  }, [tripItems, groups]);
+  }, [tripItems, groups, hasDeparture]);
 
   // 保守偵測「這趟結束了」：回程時間超過 24 小時，且這趟的收據全部
   // 已退款或已失效（沒有任何一張還卡在待處理），才會跳一次提示。
@@ -2807,6 +3081,9 @@ export default function App() {
   // 沒有使用者手動調過的 taxOverride/note/unpacked/consumed。
   function quickSaveDraft(draft, photosArr) {
     const id = `r_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    // 「這是這趟的第一張收據」要在存檔前判斷——upsert 一執行，
+    // tripItems 馬上就會多一筆，存檔後再檢查永遠會看到「至少有一張」。
+    const wasFirstItem = tripItems.length === 0;
     upsert(
       {
         id,
@@ -2828,7 +3105,57 @@ export default function App() {
       photosArr,
     );
     setQuickAddOn(false);
+    // 只有第一張、且回程時間還沒填的時候才加問回程時間那一段，而且
+    // 這個條件天生只會在「這趟的第一張」成立一次，不需要另外存一個
+    // 「已經問過」的旗標——第二張存的時候 wasFirstItem 已經是 false。
+    // 店裡不是填航班的場合，這句只問一次，關掉／選了動作就不再問，
+    // 總覽上方的缺口會一直留著提醒。
+    setSavedToast({
+      showDeparturePrompt: wasFirstItem && !activeTrip?.departure,
+    });
   }
+
+  // 沒有回程時間那一段的 toast 帶了兩顆需要使用者讀完、選一個的按鈕，
+  // 不能自動關掉；一般的存檔確認（第二張以後、或回程時間本來就填好）
+  // 只是單純的成功回饋，看過就好，自動收掉，不用逼使用者手動關。
+  useEffect(() => {
+    if (!savedToast || savedToast.showDeparturePrompt) return;
+    const timer = setTimeout(() => setSavedToast(null), 2600);
+    return () => clearTimeout(timer);
+  }, [savedToast]);
+
+  // toast 的「設定」按鈕自己會關掉 toast 再開編輯行程，但使用者不一定
+  // 從那顆按鈕進去——可能是點行程名稱、切到設定分頁、或任何其他路徑
+  // 到達編輯行程／別的畫面。toast 是「固定在畫面最上層」的浮動元件，
+  // 不會因為底下開了別的 sheet 就自己消失，沒特別處理的話，會像貼紙
+  // 一樣一路疊在新畫面上面，看起來像「怎麼還在」。這裡讓它在使用者
+  // 離開首頁去做任何別的事情時，一併收掉——這個提示本來就只對應
+  // 「剛存檔那一刻」，沒有必要跟著使用者到處飄。
+  useEffect(() => {
+    if (
+      editingTripId !== null ||
+      quickAddOn ||
+      openId !== null ||
+      tab !== 'home' ||
+      tripSheet ||
+      menuOpen ||
+      endedSheetOpen ||
+      deadline3dSheetOpen ||
+      refundCheckOpen
+    ) {
+      setSavedToast(null);
+    }
+  }, [
+    editingTripId,
+    quickAddOn,
+    openId,
+    tab,
+    tripSheet,
+    menuOpen,
+    endedSheetOpen,
+    deadline3dSheetOpen,
+    refundCheckOpen,
+  ]);
 
   async function fetchRate() {
     setRateBusy(true);
@@ -3031,8 +3358,10 @@ export default function App() {
               settings={settings}
               trip={activeTrip}
               hasItems={tripItems.length > 0}
+              itemCount={tripItems.length}
               onAdd={startAdd}
               onGoSettings={() => setTab('set')}
+              onGoList={() => setTab('list')}
               onGoCheck={() => setTab('check')}
               onEditTrip={() => setEditingTripId(activeId)}
               onGoFaq={() => {
@@ -3053,6 +3382,9 @@ export default function App() {
               groups={groups}
               taxOf={taxOf}
               settings={settings}
+              itemPhotoCounts={itemPhotoCounts}
+              hasDeparture={hasDeparture}
+              onEditTrip={() => setEditingTripId(activeId)}
               onOpen={setOpenId}
               onAdd={startAdd}
             />
@@ -3161,6 +3493,73 @@ export default function App() {
               >
                 {t.exitStay}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {savedToast && (
+        <div className="fixed inset-0 z-50" style={{ pointerEvents: 'none' }}>
+          <div className="relative kaeru-app" style={{ minHeight: 0, height: '100%' }}>
+            <div
+              className="absolute"
+              style={{
+                left: '22px',
+                right: '22px',
+                bottom: 'max(30px, calc(env(safe-area-inset-bottom) + 14px))',
+                backgroundColor: C.ink,
+                padding: '15px 17px',
+                borderRadius: 0,
+                pointerEvents: 'auto',
+              }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  {/* 深底變體：一般打勾用的 C.sage 在這個深色底上對比不
+                      夠，這裡换成專門給深底用的較亮色調。 */}
+                  <CheckCircle2 size={17} style={{ color: '#B8CBB7' }} />
+                  <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#FFFFFF' }}>
+                    {t.savedToastTitle}
+                  </span>
+                </div>
+                {savedToast.showDeparturePrompt && (
+                  <button onClick={() => setSavedToast(null)}>
+                    <X size={16} style={{ color: 'rgba(255,255,255,0.5)' }} />
+                  </button>
+                )}
+              </div>
+              {savedToast.showDeparturePrompt && (
+                <>
+                  <p
+                    className="mt-2"
+                    style={{ fontSize: '12.5px', color: 'rgba(255,255,255,0.78)', lineHeight: 1.6 }}
+                  >
+                    {t.savedToastDeparturePrompt}
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => {
+                        setSavedToast(null);
+                        setEditingTripId(activeId);
+                      }}
+                      className="flex-1 py-2.5 text-sm font-bold"
+                      style={{ backgroundColor: '#FFFFFF', color: C.ink }}
+                    >
+                      {t.setDepartureCta}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSavedToast(null);
+                        setQuickAddOn(true);
+                      }}
+                      className="flex-1 py-2.5 text-sm font-semibold"
+                      style={{ border: '1px solid rgba(255,255,255,0.28)', color: '#FFFFFF' }}
+                    >
+                      {t.retakeOneMoreCta}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -3345,6 +3744,7 @@ export default function App() {
           onPhotosChange={(next) => upsert(openItem, next)}
           taxOf={taxOf}
           settings={settings}
+          hasDeparture={hasDeparture}
           onClose={() => setOpenId(null)}
           onEdit={(it) => {
             setOpenId(null);
@@ -3370,8 +3770,10 @@ function HomeView({
   settings,
   trip,
   hasItems,
+  itemCount,
   onAdd,
   onGoSettings,
+  onGoList,
   onGoCheck,
   onEditTrip,
   onGoFaq,
@@ -3402,6 +3804,7 @@ function HomeView({
     return unnamed ? (
       <EmptyUnnamedTrip
         t={t}
+        trip={trip}
         onEditTrip={onEditTrip}
         onAdd={onAdd}
         onStartSim={onStartSim}
@@ -3420,15 +3823,52 @@ function HomeView({
   return (
     <div className="space-y-10 pb-6">
       <section className="pt-2">
-        <CountdownDisplay
-          t={t}
-          dep={dep}
-          diffMs={diffMs}
-          dDays={dDays}
-          dHours={dHours}
-          departed={departed}
-          onGoSettings={onGoSettings}
-        />
+        {dep ? (
+          <CountdownDisplay
+            t={t}
+            dep={dep}
+            diffMs={diffMs}
+            dDays={dDays}
+            dHours={dHours}
+            departed={departed}
+            onGoSettings={onGoSettings}
+          />
+        ) : (
+          // 缺口，不是隱藏——藏起來就沒人知道少了什麼。原本 52px 倒數
+          // 的位置換成這塊虛線缺口，段標位置跟正常倒數對得起來，讓使用
+          // 者一看就知道「這裡本來該有東西」。見
+          // CLAUDE_CODE_DELTA_未設定回程時間.md 第 1 節。
+          <div style={{ border: `1px dashed ${C.clay}`, padding: '16px' }}>
+            <p style={{ color: C.sub, fontSize: '10.5px', letterSpacing: '0.24em' }}>
+              {t.departIn}
+            </p>
+            <p className="mt-2 font-bold" style={{ fontSize: '19px', color: C.ink }}>
+              {t.noDepartureTitle}
+            </p>
+            <p className="mt-2" style={{ fontSize: '13px', color: C.sub, lineHeight: 1.75 }}>
+              {t.noDepartureDesc}
+            </p>
+            <div className="mt-4 flex gap-1.5">
+              <button
+                onClick={onEditTrip}
+                className="font-semibold"
+                style={{ flex: 1, padding: '12px 0', backgroundColor: C.blue, color: '#FFFFFF' }}
+              >
+                {t.setDepartureCta}
+              </button>
+              {/* 「晚點」故意不接任何動作——這塊缺口是持續存在的提示，
+                  不是一次性的 toast，不需要「關閉」或「稍後提醒」這種
+                  狀態；點了就是單純承認「現在不想填」，畫面維持原樣，
+                  缺口會一直留到使用者自己填了回程時間才消失。 */}
+              <button
+                className="font-semibold"
+                style={{ padding: '12px 18px', border: `1px solid ${C.line}`, color: C.ink }}
+              >
+                {t.laterCta}
+              </button>
+            </div>
+          </div>
+        )}
         {dep && diffMs > 0 && !within24h && (
           <div className="mt-4 flex flex-wrap gap-1.5">
             <Badge tone="blue">
@@ -3502,80 +3942,149 @@ function HomeView({
         )}
       </section>
 
-      <section
-        style={{
-          borderTop: `1px solid ${C.ink}`,
-          borderBottom: `1px solid ${C.ink}`,
-        }}
-      >
-        <Row label={t.totalSpent} align="baseline">
-          <span
-            className="font-semibold tabular-nums"
-            style={{ color: C.ink, fontSize: '24px' }}
-          >
-            ¥{yen(stats.totalIncl)}
-          </span>
-        </Row>
-
-        <Row
-          label={departed ? t.refundedTotalLabel : t.estRefund}
-          sub={`≈ NT$${twd((departed ? stats.refundedTax : stats.refundable) * settings.rate)}`}
-          align="end"
+      {dep ? (
+        <section
+          style={{
+            borderTop: `1px solid ${C.ink}`,
+            borderBottom: `1px solid ${C.ink}`,
+          }}
         >
-          <span
-            className="kaeru-refund font-semibold tabular-nums"
-            style={{ color: C.blueDeep, lineHeight: 1 }}
-          >
-            ¥{yen(departed ? stats.refundedTax : stats.refundable)}
-          </span>
-        </Row>
-
-        <Row label={t.pending}>
-          {stats.pendingCount > 0 && (
-            <Badge tone="blue" size="lg">
-              {t.tripNow}
-            </Badge>
-          )}
-          <span className="tabular-nums">
+          <Row label={t.totalSpent} align="baseline">
             <span
-              className="font-semibold"
+              className="font-semibold tabular-nums"
               style={{ color: C.ink, fontSize: '24px' }}
             >
-              {stats.pendingCount}
+              ¥{yen(stats.totalIncl)}
             </span>
-            <span className="ml-1 text-xs" style={{ color: C.sub }}>
-              {t.itemsUnit}
-            </span>
-          </span>
-        </Row>
+          </Row>
 
-        <Row label={t.nearestDeadline} last>
-          {stats.minDays === null ? (
-            <span className="text-sm" style={{ color: C.sub }}>
-              {t.noDeadline}
+          <Row
+            label={departed ? t.refundedTotalLabel : t.estRefund}
+            sub={`≈ NT$${twd((departed ? stats.refundedTax : stats.refundable) * settings.rate)}`}
+            align="end"
+          >
+            <span
+              className="kaeru-refund font-semibold tabular-nums"
+              style={{ color: C.blueDeep, lineHeight: 1 }}
+            >
+              ¥{yen(departed ? stats.refundedTax : stats.refundable)}
             </span>
-          ) : (
-            <>
-              <Badge tone={stats.minDays <= 14 ? 'clay' : 'outline'} size="lg">
-                {t.dueLeft} {stats.minDays} {t.days}
+          </Row>
+
+          <Row label={t.pending}>
+            {stats.pendingCount > 0 && (
+              <Badge tone="blue" size="lg">
+                {t.tripNow}
               </Badge>
-              <span className="tabular-nums">
-                <span
-                  className="font-semibold"
-                  style={{ color: C.ink, fontSize: '24px' }}
-                >
-                  {stats.minDays}
-                </span>
-                <span className="ml-1 text-xs" style={{ color: C.sub }}>
-                  {t.days}
-                </span>
+            )}
+            <span className="tabular-nums">
+              <span
+                className="font-semibold"
+                style={{ color: C.ink, fontSize: '24px' }}
+              >
+                {stats.pendingCount}
               </span>
-            </>
-          )}
-        </Row>
-      </section>
+              <span className="ml-1 text-xs" style={{ color: C.sub }}>
+                {t.itemsUnit}
+              </span>
+            </span>
+          </Row>
 
-      {!departed && (
+          <Row label={t.nearestDeadline} last>
+            {stats.minDays === null ? (
+              <span className="text-sm" style={{ color: C.sub }}>
+                {t.noDeadline}
+              </span>
+            ) : (
+              <>
+                <Badge tone={stats.minDays <= 14 ? 'clay' : 'outline'} size="lg">
+                  {t.dueLeft} {stats.minDays} {t.days}
+                </Badge>
+                <span className="tabular-nums">
+                  <span
+                    className="font-semibold"
+                    style={{ color: C.ink, fontSize: '24px' }}
+                  >
+                    {stats.minDays}
+                  </span>
+                  <span className="ml-1 text-xs" style={{ color: C.sub }}>
+                    {t.days}
+                  </span>
+                </span>
+              </>
+            )}
+          </Row>
+        </section>
+      ) : (
+        // 沒有回程時間時只留三行——「還沒處理」「最近到期」這兩個概念
+        // 都得靠回程時間才有意義，硬要顯示只會逼自己面對一堆「還沒有
+        // 期限」，不如乾脆換成更誠實的摘要，剩下的疑問留給下面「還算
+        // 不出來的事」統一講。已存的收據還是要看得到金額，不能因為
+        // 回程時間沒填就連這個都藏起來。
+        <section
+          style={{
+            borderTop: `1px solid ${C.ink}`,
+            borderBottom: `1px solid ${C.ink}`,
+          }}
+        >
+          <Row label={t.totalSpent} align="baseline">
+            <span
+              className="font-semibold tabular-nums"
+              style={{ color: C.ink, fontSize: '24px' }}
+            >
+              ¥{yen(stats.totalIncl)}
+            </span>
+          </Row>
+          <Row
+            label={t.estRefund}
+            sub={`≈ NT$${twd(stats.refundable * settings.rate)}`}
+            align="end"
+          >
+            <span
+              className="kaeru-refund font-semibold tabular-nums"
+              style={{ color: C.blueDeep, lineHeight: 1 }}
+            >
+              ¥{yen(stats.refundable)}
+            </span>
+          </Row>
+          <Row label={t.savedCountLabel(itemCount)} last>
+            <button onClick={onGoList} className="font-bold" style={{ fontSize: '13px', color: C.blueDeep }}>
+              {t.viewListCta} ›
+            </button>
+          </Row>
+        </section>
+      )}
+
+      {!dep && (
+        <section>
+          <h3
+            className="font-bold"
+            style={{ color: C.blue, fontSize: '10.5px', letterSpacing: '0.24em' }}
+          >
+            {t.cantCalcYetLabel}
+          </h3>
+          <div className="mt-4" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {[
+              [t.cantCalcDeadlinePerReceipt, t.deadlinePendingBadge],
+              [t.cantCalcDepartDayFlow, t.notSetBadge],
+              [t.cantCalcAirportQueue, t.notSetBadge],
+            ].map(([label, badge], n) => (
+              <div key={n} className="flex items-center justify-between gap-3">
+                <span style={{ fontSize: '13.5px', color: C.ink }}>{label}</span>
+                <Badge tone="outline">{badge}</Badge>
+              </div>
+            ))}
+          </div>
+          <p
+            className="mt-4"
+            style={{ backgroundColor: C.soft, padding: '14px', fontSize: '11.5px', color: C.sub, lineHeight: 1.8 }}
+          >
+            {t.cantCalcNote}
+          </p>
+        </section>
+      )}
+
+      {dep && !departed && (
         <section>
           <h3
             className="font-bold"
@@ -3684,7 +4193,21 @@ function CountdownDisplay({ t, dep, diffMs, dDays, dHours, departed, onGoSetting
 // 空狀態．畫面 38：行程還沒命名（沒名字或沒回程時間），而且一張收據
 // 都還沒加。用一張待填卡把「行程」這個概念亮出來，主 CTA 去把名字和
 // 回程時間填上；逃生口讓使用者可以先加收據，晚點再回來補。
-function EmptyUnnamedTrip({ t, onEditTrip, onAdd, onStartSim }) {
+function EmptyUnnamedTrip({ t, trip, onEditTrip, onAdd, onStartSim }) {
+  // 兩行狀態要照實際資料顯示，不能兩個都寫死「未填」——名字跟回程
+  // 時間可能只缺一個（例如新增第二趟行程會帶入上次的回程時間，但
+  // 名字是空的；反過來使用者也可能先取好名字才回頭填回程時間）。
+  // 猜錯/騙人比留白更危險，見「擋住不如誠實」原則。
+  const missingName = !trip || !trip.name;
+  const missingDeparture = !trip || !trip.departure;
+  const depDate = trip && trip.departure ? new Date(trip.departure) : null;
+  const depLabel = depDate
+    ? `${depDate.getMonth() + 1}/${depDate.getDate()} ${String(depDate.getHours()).padStart(2, '0')}:${String(depDate.getMinutes()).padStart(2, '0')}`
+    : t.unfilled;
+  // 名字本身不重要，回程時間才是地基——只缺回程時間時，標題／CTA
+  // 改講回程時間，不要繼續講「還沒有名字」（那時名字已經填了）。
+  const title = missingDeparture ? t.noDepartureTitle : t.emptyUnnamedTitle;
+  const cta = missingDeparture ? t.setDepartureCta : t.emptyUnnamedCta;
   return (
     <div className="pb-6">
       <section className="pt-2">
@@ -3696,7 +4219,7 @@ function EmptyUnnamedTrip({ t, onEditTrip, onAdd, onStartSim }) {
             className="mt-2 font-bold"
             style={{ fontSize: '26px', color: C.sub, lineHeight: 1.2 }}
           >
-            {t.emptyUnnamedTitle}
+            {title}
           </p>
           <div
             className="mt-3 flex flex-col"
@@ -3712,9 +4235,9 @@ function EmptyUnnamedTrip({ t, onEditTrip, onAdd, onStartSim }) {
               </span>
               <span
                 className="font-semibold"
-                style={{ fontSize: '12.5px', color: C.clayInk }}
+                style={{ fontSize: '12.5px', color: missingName ? C.clayInk : C.ink }}
               >
-                {t.unfilled}
+                {missingName ? t.unfilled : trip.name}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -3723,9 +4246,9 @@ function EmptyUnnamedTrip({ t, onEditTrip, onAdd, onStartSim }) {
               </span>
               <span
                 className="font-semibold"
-                style={{ fontSize: '12.5px', color: C.clayInk }}
+                style={{ fontSize: '12.5px', color: missingDeparture ? C.clayInk : C.ink }}
               >
-                {t.unfilled}
+                {depLabel}
               </span>
             </div>
           </div>
@@ -3743,7 +4266,7 @@ function EmptyUnnamedTrip({ t, onEditTrip, onAdd, onStartSim }) {
           className="mt-4 w-full py-3.5 font-bold"
           style={{ backgroundColor: C.blue, color: '#FFFFFF', fontSize: '14px' }}
         >
-          {t.emptyUnnamedCta}
+          {cta}
         </button>
 
         <p className="mt-3 text-center" style={{ fontSize: '12.5px' }}>
@@ -4219,7 +4742,18 @@ function Row({ label, sub, last, align = 'center', children }) {
   );
 }
 
-function ListView({ t, items, groups, taxOf, settings, onOpen, onAdd }) {
+function ListView({
+  t,
+  items,
+  groups,
+  taxOf,
+  settings,
+  itemPhotoCounts,
+  hasDeparture,
+  onEditTrip,
+  onOpen,
+  onAdd,
+}) {
   const [filter, setFilter] = useState('all');
 
   if (!items.length) {
@@ -4278,6 +4812,15 @@ function ListView({ t, items, groups, taxOf, settings, onOpen, onAdd }) {
   const nothingToShow =
     filter === 'pending' ? !pendingItems.length : !keys.length && !showPendingSection;
 
+  // 沒有回程時間時，這些收據的卡片上都會掛「期限待定」——這裡數一次
+  // 有幾張，跟每張卡片自己的 showDeadlinePending 判斷用同一套條件
+  // （沒待補、沒消費掉、沒真的過期），才不會兩邊算出不同的數字。
+  const deadlinePendingCount = hasDeparture
+    ? 0
+    : items.filter(
+        (it) => !isPendingInfo(it) && !it.consumed && !isExpiredUnclaimed(it),
+      ).length;
+
   return (
     <div className="space-y-4">
       <div
@@ -4302,6 +4845,26 @@ function ListView({ t, items, groups, taxOf, settings, onOpen, onAdd }) {
           </button>
         ))}
       </div>
+
+      {deadlinePendingCount > 0 && (
+        <button
+          onClick={onEditTrip}
+          className="flex w-full items-center justify-between gap-3 text-left"
+          style={{ border: `1px dashed ${C.clay}`, padding: '14px 16px' }}
+        >
+          <div className="min-w-0">
+            <p style={{ fontSize: '13.5px', fontWeight: 700, color: C.ink }}>
+              {t.deadlinePendingBanner(deadlinePendingCount)}
+            </p>
+            <p className="mt-1" style={{ fontSize: '11.5px', color: C.sub }}>
+              {t.deadlinePendingBannerDesc}
+            </p>
+          </div>
+          <span className="shrink-0 font-bold" style={{ fontSize: '12.5px', color: C.blueDeep }}>
+            {t.deadlinePendingSetCta} ›
+          </span>
+        </button>
+      )}
 
       {showPendingSection && (
         <div style={{ backgroundColor: C.soft, padding: '14px 16px' }}>
@@ -4421,6 +4984,9 @@ function ListView({ t, items, groups, taxOf, settings, onOpen, onAdd }) {
                         settings={settings}
                         groupOk={g.ok}
                         separator={i > 0}
+                        itemPhotoCount={itemPhotoCounts[it.id] || 0}
+                        hasDeparture={hasDeparture}
+                        onEditTrip={onEditTrip}
                         onClick={() => onOpen(it.id)}
                       />
                     ))}
@@ -4430,34 +4996,81 @@ function ListView({ t, items, groups, taxOf, settings, onOpen, onAdd }) {
           })}
         </div>
       )}
+
+      {deadlinePendingCount > 0 && (
+        <div style={{ borderTop: `1px solid ${C.ink}`, paddingTop: '20px' }}>
+          <h3
+            className="font-bold"
+            style={{ color: C.blue, fontSize: '10.5px', letterSpacing: '0.24em' }}
+          >
+            {t.deadlinePendingWhatLabel}
+          </h3>
+          <ol className="mt-4" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {[
+              t.deadlinePendingTip1,
+              t.deadlinePendingTip2,
+              t.deadlinePendingTip3,
+            ].map((tip, n) => (
+              <li key={n} className="flex" style={{ gap: '14px' }}>
+                <span
+                  className="shrink-0 font-bold tabular-nums"
+                  style={{ color: C.blue, fontSize: '11px' }}
+                >
+                  {String(n + 1).padStart(2, '0')}
+                </span>
+                <span style={{ fontSize: '13px', lineHeight: 1.75 }}>{tip}</span>
+              </li>
+            ))}
+          </ol>
+          <p
+            className="mt-4"
+            style={{ backgroundColor: C.soft, padding: '14px', fontSize: '11.5px', color: C.sub, lineHeight: 1.8 }}
+          >
+            {t.deadlinePendingNote}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
 
-// 資料待補（快速新增、OCR 沒讀到店名）的收據卡——虛線框代表「資料還沒
-// 補齊」，跟空狀態的待填容器同一個語意。店名位置改顯示「店名待補」，
-// 日期位置改顯示拍照當天，點進去（補上店名和日期 ›）會開完整表單。
+// 資料待補的收據卡——虛線框代表「資料還沒補齊」，跟空狀態的待填容器
+// 同一個語意。待補現在有兩種各自獨立的原因：店名沒讀到、金額沒讀到
+// （見 isPendingInfo），兩種可能同時發生，也可能只有其中一種——這張
+// 卡要照實際缺什麼顯示，不能兩種都套同一句「店名待補」文案：店名讀到
+// 了就要顯示真正的店名，金額讀到了就要顯示真正的金額，不能因為另一項
+// 缺著，就連已經讀到的這項也用假資料蓋過去（那就是「¥0」那個 bug的
+// 同一種錯法）。點進去都是開完整表單，補齊缺的部分。
 function PendingReceiptCard({ it, t, taxOf, onClick }) {
   const tax = taxOf(it);
   const fmtShort = (iso) => {
     const dt = new Date(iso + 'T00:00:00');
     return `${dt.getMonth() + 1}/${dt.getDate()}`;
   };
+  const shopKnown = !!(it.shop && it.shop.trim());
+  const amountKnown = !!it.incl;
+  const fillLink = !shopKnown && !amountKnown
+    ? t.pendingFillAllLink
+    : !shopKnown
+      ? t.pendingFillLink
+      : t.pendingFillAmountLink;
   return (
     <section>
       <div className="flex items-end justify-between gap-3 pb-2">
         <div className="min-w-0">
           <h3
             className="truncate font-bold"
-            style={{ fontSize: '13.5px', color: C.sub }}
+            style={{ fontSize: '13.5px', color: shopKnown ? C.ink : C.sub }}
           >
-            {t.pendingShopPlaceholder}
+            {shopKnown ? it.shop : t.pendingShopPlaceholder}
           </h3>
           <p style={{ color: C.sub, fontSize: '11px' }}>
             {t.pendingCapturedOn(fmtShort(it.date))}
           </p>
         </div>
-        <Badge tone="outline">{t.pendingBadge}</Badge>
+        <Badge tone="outline">
+          {!shopKnown ? t.pendingBadge : t.pendingAmountBadge}
+        </Badge>
       </div>
       <button
         onClick={onClick}
@@ -4465,23 +5078,35 @@ function PendingReceiptCard({ it, t, taxOf, onClick }) {
         style={{ border: `1px dashed ${C.line}` }}
       >
         <div className="flex items-baseline justify-between gap-3">
-          <p
-            className="font-semibold tabular-nums"
-            style={{ fontSize: '18px', color: C.ink }}
-          >
-            ¥{yen(it.incl)}
-          </p>
-          <p className="tabular-nums" style={{ color: C.sub, fontSize: '11px' }}>
-            {t.taxAmount} ¥{yen(tax)}
-          </p>
+          {amountKnown ? (
+            <p
+              className="font-semibold tabular-nums"
+              style={{ fontSize: '18px', color: C.ink }}
+            >
+              ¥{yen(it.incl)}
+            </p>
+          ) : (
+            <p className="font-semibold" style={{ fontSize: '15px', color: C.sub }}>
+              {t.pendingAmountPlaceholder}
+            </p>
+          )}
+          {amountKnown && (
+            <p className="tabular-nums" style={{ color: C.sub, fontSize: '11px' }}>
+              {t.taxAmount} ¥{yen(tax)}
+            </p>
+          )}
         </div>
         <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {netOfItem(it) >= 5000 ? (
-            <Badge tone="sage">{t.reached}</Badge>
+          {amountKnown ? (
+            netOfItem(it) >= 5000 ? (
+              <Badge tone="sage">{t.reached}</Badge>
+            ) : (
+              <Badge tone="clay">
+                {t.short} ¥{yen(5000 - netOfItem(it))}
+              </Badge>
+            )
           ) : (
-            <Badge tone="clay">
-              {t.short} ¥{yen(5000 - netOfItem(it))}
-            </Badge>
+            <Badge tone="outline">{t.pendingAmountBadge}</Badge>
           )}
           {it.refundMethod === 'registered' && (
             <Badge tone="outline">{t.refundReg}</Badge>
@@ -4491,14 +5116,25 @@ function PendingReceiptCard({ it, t, taxOf, onClick }) {
           className="mt-2.5 font-semibold"
           style={{ color: C.blueDeep, fontSize: '12px' }}
         >
-          {t.pendingFillLink} ›
+          {fillLink} ›
         </p>
       </button>
     </section>
   );
 }
 
-function ReceiptCard({ it, t, taxOf, settings, groupOk, separator, onClick }) {
+function ReceiptCard({
+  it,
+  t,
+  taxOf,
+  settings,
+  groupOk,
+  separator,
+  itemPhotoCount,
+  hasDeparture,
+  onEditTrip,
+  onClick,
+}) {
   const d = daysLeft(it.date);
   const tax = taxOf(it);
   const consumedDead = !!it.consumed;
@@ -4524,8 +5160,15 @@ function ReceiptCard({ it, t, taxOf, settings, groupOk, separator, onClick }) {
   // d &lt; 0（已經過期）現在不再保證 dead 是 true——已查驗/已退款的收據
   // 就算超過 90 天也不算「來不及」（expiredDead 已經排除這兩種狀態），
   // 但那種情況下「期限剩 N 天」倒數徽章一樣沒意義，不能顯示負數天數，
-  // 要另外擋掉，不能只靠 !dead。
-  const showDeadlineBadge = !dead && d !== null && d >= 0 && d <= 30;
+  // 要另外擋掉，不能只靠 !dead。這裡還要加上 hasDeparture——沒有回程
+  // 時間，「還剩 N 天」這個數字對使用者沒有實際意義（見
+  // CLAUDE_CODE_DELTA_未設定回程時間.md），寧可老實顯示「期限待定」。
+  const showDeadlineBadge = !dead && hasDeparture && d !== null && d >= 0 && d <= 30;
+  // 沒有回程時間、這張也還沒失效（expiredDead 是拿沒有回程時間也算得
+  // 出來的原始 d 判斷，跟這裡是不同層次的東西）——不管達不達標門檻，
+  // 都要老實掛上「期限待定」，不能因為 warn 分支已經佔掉這個位置，
+  // 就讓使用者以為這張沒有期限問題。
+  const showDeadlinePending = !dead && !hasDeparture && d !== null;
   const showPendingBadge = !dead && !warn && stageIdx < 2;
   const tone = warn ? C.clay : expiredDead ? C.sub : C.blue;
 
@@ -4652,6 +5295,21 @@ function ReceiptCard({ it, t, taxOf, settings, groupOk, separator, onClick }) {
                 {netOfItem(it) >= 1000000 && <Badge tone="blue">100万円+</Badge>}
               </>
             )}
+            {showDeadlinePending && (
+              // 線框＝待補，不是警示，故意不用 clay 填色——這張收據本身
+              // 沒問題，只是還算不出期限。點了直接跳去填回程時間，不能
+              // 冒泡到卡片本身的 onClick（那個是開詳情頁，兩個是不同的
+              // 動作）。
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditTrip && onEditTrip();
+                }}
+                style={{ cursor: 'pointer' }}
+              >
+                <Badge tone="outline">{t.deadlinePendingBadge}</Badge>
+              </span>
+            )}
             {it.unpacked && <Badge tone="outline">{t.unpackedShort}</Badge>}
             {it.refundMethod === 'registered' && (
               <Badge tone="outline">{t.refundReg}</Badge>
@@ -4675,6 +5333,20 @@ function ReceiptCard({ it, t, taxOf, settings, groupOk, separator, onClick }) {
         >
           {t.expired}
         </p>
+      )}
+
+      {/* 物品照片只是備忘，不是判讀資訊——不進卡片主體、不佔任何欄位
+          位置，金額/達標/期限這些真正要看的東西一格都不讓。浮在右下角
+          純粹是「這張收據還附了幾張物品照片」的提示，跟旁邊 tap 進
+          詳情頁是同一個動作，不需要另外接一個獨立的點擊目標。 */}
+      {itemPhotoCount > 0 && (
+        <span
+          className="absolute flex items-center gap-1"
+          style={{ right: '14px', bottom: '14px', color: C.sub, fontSize: '11px' }}
+        >
+          <CameraIcon size={13} strokeWidth={1.6} />
+          <span className="tabular-nums">{itemPhotoCount}</span>
+        </span>
       )}
     </Ticket>
   );
@@ -5915,67 +6587,74 @@ function TripSheet({
             </p>
           </button>
 
-          {trips.length > 1 &&
-            (confirmId === active.id ? (
-              <div
-                className="mt-3"
+          {/* 只剩一個行程時不給刪，但不能完全不顯示——什麼都不說，使用者
+              會以為介面壞了，猜不出是故意擋住。留一句說明講清楚規則跟
+              解除方式（去新增一個），跟 TripEditSheet 的刪除保護同一套
+              道理。 */}
+          {trips.length <= 1 ? (
+            <p className="mt-3" style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.7 }}>
+              {t.tripDeleteMinNote}
+            </p>
+          ) : confirmId === active.id ? (
+            <div
+              className="mt-3"
+              style={{
+                backgroundColor: C.soft,
+                borderLeft: `3px solid ${C.clay}`,
+                padding: '12px 14px',
+              }}
+            >
+              <p
                 style={{
-                  backgroundColor: C.soft,
-                  borderLeft: `3px solid ${C.clay}`,
-                  padding: '12px 14px',
+                  color: C.clayInk,
+                  fontSize: '12.5px',
+                  lineHeight: 1.7,
                 }}
               >
-                <p
+                {t.tripDeleteConfirm}
+              </p>
+              <div className="mt-2.5 flex gap-2">
+                <button
+                  onClick={() => {
+                    onDelete(active.id);
+                    setConfirmId(null);
+                  }}
+                  className="px-3 py-1.5 text-xs font-medium"
                   style={{
+                    border: `1px solid ${C.clay}`,
                     color: C.clayInk,
-                    fontSize: '12.5px',
-                    lineHeight: 1.7,
+                    borderRadius: 0,
                   }}
                 >
-                  {t.tripDeleteConfirm}
-                </p>
-                <div className="mt-2.5 flex gap-2">
-                  <button
-                    onClick={() => {
-                      onDelete(active.id);
-                      setConfirmId(null);
-                    }}
-                    className="px-3 py-1.5 text-xs font-medium"
-                    style={{
-                      border: `1px solid ${C.clay}`,
-                      color: C.clayInk,
-                      borderRadius: 0,
-                    }}
-                  >
-                    {t.tripDelete}
-                  </button>
-                  <button
-                    onClick={() => setConfirmId(null)}
-                    className="px-3 py-1.5 text-xs"
-                    style={{
-                      border: `1px solid ${C.line}`,
-                      color: C.ink,
-                      borderRadius: 0,
-                    }}
-                  >
-                    {t.cancel}
-                  </button>
-                </div>
+                  {t.tripDelete}
+                </button>
+                <button
+                  onClick={() => setConfirmId(null)}
+                  className="px-3 py-1.5 text-xs"
+                  style={{
+                    border: `1px solid ${C.line}`,
+                    color: C.ink,
+                    borderRadius: 0,
+                  }}
+                >
+                  {t.cancel}
+                </button>
               </div>
-            ) : (
-              <button
-                onClick={() => setConfirmId(active.id)}
-                className="mt-3 flex w-full items-center justify-center py-2.5"
-                style={{
-                  border: `1px solid ${C.line}`,
-                  color: C.sub,
-                  fontSize: '12.5px',
-                  borderRadius: 0,
-                }}
-              >
-                {t.tripDelete}
-              </button>
-            ))}
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmId(active.id)}
+              className="mt-3 flex w-full items-center justify-center py-2.5"
+              style={{
+                border: `1px solid ${C.line}`,
+                color: C.sub,
+                fontSize: '12.5px',
+                borderRadius: 0,
+              }}
+            >
+              {t.tripDelete}
+            </button>
+          )}
         </div>
       )}
 
@@ -6232,11 +6911,17 @@ function TripEditSheet({
           </div>
 
           <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: '18px' }}>
-            {/* 跟 TripSheet 的刪除保護一樣：只剩一個行程時，這裡完全不
-                顯示刪除入口——不然從設定頁或首頁空狀態的「編輯行程」CTA
-                進來，可以把唯一的行程刪掉，事後 app 會自己生一個空白
-                行程頂替，使用者毫無預警。 */}
-            {tripCount > 1 && (confirmDelete ? (
+            {/* 跟 TripSheet 的刪除保護一樣：只剩一個行程時不給刪——不然
+                從設定頁或首頁空狀態的「編輯行程」CTA 進來，可以把唯一的
+                行程刪掉，事後 app 會自己生一個空白行程頂替，使用者毫無
+                預警。但完全不顯示刪除區塊、什麼都不說，使用者會以為
+                介面壞了或東西不見了，猜不出是故意擋住——這裡改成留一句
+                說明，讓使用者知道規則、也知道怎麼解除（去新增一個）。 */}
+            {tripCount <= 1 ? (
+              <p style={{ color: C.sub, fontSize: '12px', lineHeight: 1.8 }}>
+                {t.tripDeleteMinNote}
+              </p>
+            ) : confirmDelete ? (
               <div style={{ backgroundColor: C.soft, borderLeft: `3px solid ${C.clay}`, padding: '12px 14px' }}>
                 <p style={{ color: C.clayInk, fontSize: '12.5px', lineHeight: 1.7 }}>
                   {t.deleteTripWarning(tripStats.count)}
@@ -6278,7 +6963,7 @@ function TripEditSheet({
                   {t.tripDelete}
                 </button>
               </>
-            ))}
+            )}
           </div>
         </div>
       </FullScreenSheet>
@@ -6533,7 +7218,7 @@ function AirportPickerSheet({ t, selected, onClose, onPick }) {
 // （跟 useState 的 setter 同介面），EditSheet 傳真的 setState，DetailSheet
 // 傳一個包了 onPhotosChange 的 wrapper（因為 DetailSheet 沒有「儲存」按鈕，
 // 加/刪照片要立刻生效、直接寫回上層）。
-function usePhotoCapture({ imgs, setImgs, onParsed }) {
+function usePhotoCapture({ imgs, setImgs, onParsed, librarySingleSelect }) {
   const [photoPromptOpen, setPhotoPromptOpen] = useState(false);
   const [photoDenied, setPhotoDenied] = useState(null); // null | 'camera' | 'photos'
   const [confirmPhoto, setConfirmPhoto] = useState(null); // { src, fromScan } | null
@@ -6562,7 +7247,11 @@ function usePhotoCapture({ imgs, setImgs, onParsed }) {
     if (!f) return;
     try {
       const src = await compressImage(f);
-      setImgs((p) => [...p, src].slice(0, MAX_PHOTOS));
+      // 每張新照片預設都是 'receipt'（憑證）——使用者不用在拍照/選圖
+      // 前先決定型別，這個決定放在拍完之後，而且隨時可以改（見
+      // retypeImg）。網頁版 file input 這條路徑沒有 OCR，無從判斷是
+      // 不是收據，一律先當憑證，跟原生相機/掃描路徑的預設一致。
+      setImgs((p) => [...p, { src, type: 'receipt' }].slice(0, MAX_PHOTOS));
     } catch (err) {}
     e.target.value = '';
   }
@@ -6591,7 +7280,20 @@ function usePhotoCapture({ imgs, setImgs, onParsed }) {
         source: CameraSource.Camera,
         quality: 80,
       });
-      if (shot?.webPath) setConfirmPhoto({ src: shot.webPath, fromScan: false });
+      if (shot?.webPath) {
+        setConfirmPhoto({ src: shot.webPath, fromScan: false });
+      } else {
+        // 極少數情況下原生端會「成功回來、卻沒給可用的路徑」——不是
+        // 使用者取消（那個會直接拋錯，走下面的 catch），也不是權限被
+        // 拒，是真的拍完了、卻拿不到照片。什麼都不做的話，QuickAddFlow
+        // 那個「使用者是不是放棄了」的判斷會把這個狀態誤判成「使用者
+        // 什麼都沒選」，直接把整條快路關掉、跳回首頁——使用者完全不
+        // 知道剛剛發生了什麼事，也不知道剛拍的照片去哪了。這應該就是
+        // 「拍完就跳、跳回首頁」這個 bug 的成因：拍照這一步本身沒有
+        // 拋錯，只是沒拿到可用的照片。改成重新跳出來源選單，讓使用者
+        // 能馬上再試一次，不要默默把人踢回首頁。
+        setPhotoPromptOpen(true);
+      }
     } catch (err) {
       if (isPermissionDenied(err)) setPhotoDenied('camera');
     } finally {
@@ -6606,17 +7308,58 @@ function usePhotoCapture({ imgs, setImgs, onParsed }) {
       // pickImages 是舊版 API，已標記 deprecated，多選在部分裝置上不
       // 可靠；chooseFromGallery 才是目前真的支援多選的方法，要自己開
       // allowMultipleSelection，不然預設是單選。
+      // librarySingleSelect（快速新增用）：那個畫面全程只顯示、只用
+      // 得到第一張——選多張的話，第 2 張之後會直接被存進去、標成收據
+      // 照片，但畫面上完全看不到，使用者沒機會看、改型別或刪除，等於
+      // 悄悄多存了幾張自己不知道的照片。快速新增本來就是「一張收據、
+      // 一張照片」的設計，這裡直接限制成單選，不留這個坑；完整表單／
+      // 詳情頁的「+加照片」有完整的縮圖管理畫面，維持原本可以多選。
       const picked = await Camera.chooseFromGallery({
-        allowMultipleSelection: true,
-        limit: Math.max(1, remaining),
+        allowMultipleSelection: !librarySingleSelect,
+        limit: librarySingleSelect ? 1 : Math.max(1, remaining),
         quality: 80,
       });
       const files = picked?.results || [];
-      for (const f of files.slice(0, remaining)) {
+      if (!files.length) return;
+      // 第一張要走跟拍照/掃描同一條路——PhotoConfirmSheet 的確認畫面，
+      // 順便跑 OCR——不能直接加進 imgs 就算了事。這裡曾經漏掉這一步，
+      // 從相簿選的照片永遠不會跑 OCR，QuickAddFlow 完全靠第一張的 OCR
+      // 結果決定要不要跳「這張看起來不像收據」那個分支（見
+      // looksLikeReceiptText／notAReceipt）；漏了 OCR，判斷永遠拿到
+      // null，不管選的到底是不是收據，一律掉進「金額沒讀到、要手動
+      // 填」那條路，連稅率都要使用者自己選——明明畫面上該問的是「這是
+      // 收據還是物品照片」，卻在問「8% 還是 10%」，是同一個根因。剩下
+      // 選的幾張（如果有；librarySingleSelect 時不會有）才直接加，不
+      // 用每張都跳一次確認畫面。
+      const [first, ...rest] = files;
+      const firstSrc = first.webPath || first.uri;
+      if (firstSrc) {
+        setConfirmPhoto({ src: firstSrc, fromScan: false });
+      } else {
+        // 使用者真的選了照片（files.length > 0，不是取消選圖那種
+        // 情況），但原生端給的這張缺路徑可用——跟 openCamera 那邊同一
+        // 個坑，什麼都不做會被「使用者是不是放棄了」那個判斷誤判成
+        // 沒選任何東西，整條快路悄悄關掉。重新跳出來源選單讓使用者
+        // 能馬上再選一次。
+        setPhotoPromptOpen(true);
+      }
+      // 第一張以外的照片不會經過 PhotoConfirmSheet，本來完全沒有機會
+      // 跑 OCR，一律硬標成 'receipt'——食物、飲料、店面這種明顯不是
+      // 收據的照片，一樣被歸類成收據照片，使用者才會覺得「怎麼都跑到
+      // 收據那邊」。這裡補上跟第一張同一套判斷（見 guessPhotoType），
+      // 猜錯的話使用者長按縮圖還是能改，不是最終定案，但猜一次總比
+      // 完全不猜、每張都當收據好。
+      for (const f of rest.slice(0, Math.max(0, remaining - 1))) {
         try {
           const src = await compressImageSrc(f.webPath || f.uri);
-          setImgs((p) => (p.length < MAX_PHOTOS ? [...p, src] : p));
-        } catch (err) {}
+          const type = await guessPhotoType(src);
+          setImgs((p) => (p.length < MAX_PHOTOS ? [...p, { src, type }] : p));
+        } catch (err) {
+          // 這裡失敗過去完全靜默——使用者只會發現「選了 3 張卻只存進
+          // 2 張」，卻沒有任何線索可以回報。印出來，下次用 chrome://
+          // inspect 接上就能看到是哪一張、為什麼失敗。
+          console.error('[usePhotoCapture] 相簿多選：附加照片失敗', err);
+        }
       }
     } catch (err) {
       if (isPermissionDenied(err)) setPhotoDenied('photos');
@@ -6642,8 +7385,11 @@ function usePhotoCapture({ imgs, setImgs, onParsed }) {
       for (const raw of rest.slice(0, Math.max(0, remaining - 1))) {
         try {
           const src = await compressImageSrc(raw);
-          setImgs((p) => (p.length < MAX_PHOTOS ? [...p, src] : p));
-        } catch (err) {}
+          const type = await guessPhotoType(src);
+          setImgs((p) => (p.length < MAX_PHOTOS ? [...p, { src, type }] : p));
+        } catch (err) {
+          console.error('[usePhotoCapture] 掃描文件：附加照片失敗', err);
+        }
       }
     } catch (err) {
       if (isPermissionDenied(err)) setPhotoDenied('camera');
@@ -6652,10 +7398,35 @@ function usePhotoCapture({ imgs, setImgs, onParsed }) {
     }
   }
 
-  function finishConfirm(src, parsed) {
+  // looksLikeReceipt 是 PhotoConfirmSheet 那邊算好的粗略判斷（有沒有
+  // 一串數字、有沒有橫向文字列），跟 parsed（結構化解析結果）一起轉
+  // 交給呼叫端決定要不要跳「這張看起來不像收據」的分支（見
+  // QuickAddFlow）。這裡也拿它來決定新照片的預設型別，但不能只看
+  // looksLikeReceipt——跟 QuickAddFlow 判斷 notAReceipt 用同一套邏輯：
+  // 只要真的抓到金額（incl／incl8／incl10），就是比 looksLikeReceipt
+  // 更強的證據，優先蓋過去，維持當收據；否則才看 looksLikeReceipt，
+  // 是 false 才預設當物品照片。沒有這一步的話，理論上會出現「明明讀到
+  // 金額、QuickAddFlow 判定是收據，這裡卻把型別猜成物品照片」這種
+  // 兩邊互相矛盾的情況（雖然實務上少見，因為金額規則本身就需要「合計/
+  // 対象」這類關鍵字或 円/¥ 符號，跟 looksLikeReceipt 判斷的訊號高度
+  // 重疊，但邏輯上兩者是分開算的，不該假設它們永遠一致）。這個預設
+  // 不是定案，使用者長按縮圖隨時可以改；在 QuickAddFlow 裡，如果這張
+  // 後來被判定「不像收據」，使用者選「還是當收據」的話，QuickAddFlow
+  // 自己會再把型別改回 'receipt'（見 keepAsReceipt），這裡不用特別
+  // 處理那個情況。
+  function finishConfirm(src, parsed, looksLikeReceipt) {
     setConfirmPhoto(null);
-    if (src) setImgs((p) => (p.length < MAX_PHOTOS ? [...p, src] : p));
-    if (parsed && onParsed) onParsed(parsed);
+    // src 是 null 代表使用者直接關掉確認畫面、沒有真的「使用這張」
+    // （見 PhotoCaptureSheets 的 onClose）——這種情況連 OCR 都沒真的
+    // 跑完就被關掉了，parsed/looksLikeReceipt 這兩個參數根本沒傳，
+    // 不能呼叫 onParsed，否則呼叫端會收到 (undefined, undefined)，
+    // 跟「這張真的辨識完、什麼都沒讀到」的 (null, false) 混在一起，
+    // 兩件不一樣的事又變成分不出來。
+    if (!src) return;
+    const hasAmountSignal = !!(parsed && (parsed.incl || parsed.incl8 || parsed.incl10));
+    const type = !hasAmountSignal && looksLikeReceipt === false ? 'item' : 'receipt';
+    setImgs((p) => (p.length < MAX_PHOTOS ? [...p, { src, type }] : p));
+    if (onParsed) onParsed(parsed, looksLikeReceipt);
   }
 
   // 重拍：關掉目前的確認畫面、重新跳一次來源選單。中間夾了
@@ -6677,6 +7448,14 @@ function usePhotoCapture({ imgs, setImgs, onParsed }) {
     setImgs((p) => p.filter((_, i) => i !== idx));
   }
 
+  // 型別隨時可改（長按縮圖切換，見 PhotoAttachments）——跟刪除一樣
+  // 用 index 定位，不用整包物件比對，photos 陣列裡本來就可能有兩張
+  // 內容一模一樣的照片（使用者重複拍了兩次），用內容比對會兩張一起
+  // 改到。
+  function retypeImg(idx, type) {
+    setImgs((p) => p.map((item, i) => (i === idx ? { ...item, type } : item)));
+  }
+
   return {
     photoPromptOpen,
     setPhotoPromptOpen,
@@ -6693,11 +7472,15 @@ function usePhotoCapture({ imgs, setImgs, onParsed }) {
     finishConfirm,
     retake,
     removeImg,
+    retypeImg,
   };
 }
 
 // 共用的「來源選擇面板」＋「確認/裁切畫面」，接 usePhotoCapture 回傳的 cap。
-function PhotoCaptureSheets({ t, cap }) {
+// onConfirmCancelled 是選填的——只有 QuickAddFlow 需要，見下面該元件裡
+// 的說明；EditSheet／DetailSheet 不傳，維持原本「關掉確認畫面就回表單」
+// 的行為不變。
+function PhotoCaptureSheets({ t, cap, onConfirmCancelled }) {
   return (
     <>
       {cap.photoPromptOpen && (
@@ -6756,7 +7539,10 @@ function PhotoCaptureSheets({ t, cap }) {
           fromScan={cap.confirmPhoto.fromScan}
           onRetake={cap.retake}
           onUse={cap.finishConfirm}
-          onClose={() => cap.finishConfirm(null)}
+          onClose={() => {
+            cap.finishConfirm(null);
+            if (onConfirmCancelled) onConfirmCancelled();
+          }}
         />
       )}
     </>
@@ -6772,8 +7558,39 @@ function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
   const [imgs, setImgs] = useState([]);
   const [parsed, setParsed] = useState(null);
   const [refundMethod, setRefundMethod] = useState(null); // 必答，故意不預選
+  // OCR 讀不到金額時的手動補值。跟 parsed 分開放，是因為 parsed 代表
+  // 「這次照片辨識出來的東西」，手動輸入是使用者自己補的，兩者來源不
+  // 一樣；分開放也才能讓「OCR 讀到了」跟「使用者自己填的」在畫面上
+  // 走不同的呈現方式（見下面 amountFound 分支）。
+  const [manualIncl, setManualIncl] = useState('');
+  const [manualRate, setManualRate] = useState(null); // 讀不到稅率不能預設 10%，要使用者自己選
+  // OCR 連「像不像收據」這個最低標準都判斷不出來——這種情況不能沉默
+  // 失敗，要主動問使用者這張到底是什麼，見下面的「不像收據」分支。
+  const [notAReceipt, setNotAReceipt] = useState(false);
   const openedRef = useRef(false);
-  const cap = usePhotoCapture({ imgs, setImgs, onParsed: setParsed });
+  const cap = usePhotoCapture({
+    imgs,
+    setImgs,
+    onParsed: (p, looksLikeReceipt) => {
+      setParsed(p);
+      // 這裡曾經寫成 !p && !looksLikeReceipt——只要 parsed 不是 null 就
+      // 不算「不像收據」。問題是 parseReceiptOCR 的店名判斷很鬆（隨便
+      // 一行 2~20 字、沒有數字的文字就算店名），拿一張桌面截圖去跑，
+      // 隨便一個視窗標題、按鈕文字都可能被誤認成「店名」，parsed 就
+      // 不是 null 了——即使 looksLikeReceipt 已經正確判斷「不像收據」，
+      // 也會被這個誤判蓋過去，實際測到真的發生了（拍桌面截圖，抓到
+      // "CLAUDE" 當店名，looksLikeReceipt: false，卻還是掉進「金額
+      // 待補」畫面，不是「不像收據」畫面）。
+      // 只有真的抓到金額（incl／incl8／incl10）才算夠強的證據可以
+      // 蓋過 looksLikeReceipt 的判斷——店名、日期都是用寬鬆規則猜的，
+      // 猜到不代表這真的是收據，不能拿來否決「不像收據」這個結論。
+      const hasAmountSignal = !!(p && (p.incl || p.incl8 || p.incl10));
+      setNotAReceipt(!hasAmountSignal && !looksLikeReceipt);
+    },
+    // 這個畫面全程只顯示、只用得到第一張照片——選相簿限制成單選，不然
+    // 選第 2 張以後的照片會悄悄存進去、卻沒有任何畫面能看到/改型別。
+    librarySingleSelect: true,
+  });
   // 這裡不用另外掛一層 useBackClose——整個快路（從開始到存檔／取消）
   // 在使用者心裡是同一個任務，外層 App 已經用 quickAddOn 掛了一層；
   // 裡面的來源選單／裁切畫面各自用 usePhotoCapture／PhotoConfirmSheet
@@ -6818,7 +7635,19 @@ function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
   if (!imgs.length) {
     return (
       <>
-        <PhotoCaptureSheets t={t} cap={cap} />
+        {/* onConfirmCancelled：使用者在確認/裁切畫面按返回鍵（那個畫面
+            沒有 ✕，只有「重拍」跟「使用」，返回鍵是唯一的退出方式，
+            而且還沒調過裁切框的話不會問「要放棄嗎」，直接就關）——
+            關掉那個畫面之後，這個分支（imgs.length 還是 0）什麼都
+            不會顯示，下面那個「使用者是不是放棄了」的判斷會把這個
+            狀態誤判成「使用者根本沒選、直接關掉整個選單」，把整條快
+            路關掉，剛拍好的照片就這樣不見了，回到首頁。這裡改成重新
+            跳出來源選單，讓使用者可以馬上選別的來源，不會被丟回首頁。 */}
+        <PhotoCaptureSheets
+          t={t}
+          cap={cap}
+          onConfirmCancelled={() => cap.setPhotoPromptOpen(true)}
+        />
         {cap.photoDenied && !cap.photoPromptOpen && !cap.confirmPhoto && (
           <BottomSheet onClose={onClose}>
             <p style={{ fontSize: '13px', color: C.ink, lineHeight: 1.9 }}>
@@ -6840,24 +7669,204 @@ function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
   const mixed = parsed?.rate === 'mixed';
   const v8 = mixed ? parsed.incl8 || 0 : 0;
   const v10 = mixed ? parsed.incl10 || 0 : 0;
-  const rate = mixed ? 'mixed' : parsed?.rate ?? 10;
-  const incl = mixed ? v8 + v10 : parsed?.incl || 0;
-  const net = mixed ? netOf(v8, 8) + netOf(v10, 10) : netOf(incl, rate);
+  // amountFound 只反映「這次照片辨識到底有沒有讀到金額」，不受使用者
+  // 事後手動輸入影響——拿來決定照片標籤（讀到金額了 sage／沒讀到金額
+  // clay）跟要不要跳「不像收據」分支，是這張照片本身的、存檔後也不會
+  // 變的事實。
+  const ocrIncl = mixed ? v8 + v10 : parsed?.incl || 0;
+  const amountFound = ocrIncl > 0;
+  // 使用者在「不像收據」分支選過「存成物品照片」之後，這張的型別會
+  // 變成 'item'——這時候照片標籤不能再顯示「沒讀到金額」，那句話的
+  // 語意是「試過了、沒讀到」，但使用者已經確認過這根本不是收據，繼續
+  // 講「沒讀到金額」等於沒把剛剛那個確認當一回事，要換成反映「這是
+  // 物品照片」這個目前狀態的標籤。
+  const photoIsItem = imgs[0]?.type === 'item';
+  const manualInclNum = Number(manualIncl.replace(/,/g, '')) || 0;
+  const incl = amountFound ? ocrIncl : manualInclNum;
+  // 稅率同理：OCR 讀不到金額的收據，稅率通常也沒讀到，不能偷偷預設
+  // 10%——8% 跟 10% 會讓退款金額差到一截，猜錯比留白讓使用者選更糟。
+  const rate = amountFound ? (mixed ? 'mixed' : parsed?.rate ?? 10) : manualRate;
+  // amountReady 是「金額跟稅率現在都有了」，不管是 OCR 讀到的還是使用
+  // 者剛剛自己填的——這個決定畫面要顯示摘要卡還是手動輸入表單，跟上面
+  // amountFound（純粹 OCR 有沒有讀到）是兩件事：使用者自己填完之後，
+  // 畫面應該跟 OCR 一次就讀到長一樣，不用因為「這是手填的」就繼續掛著
+  // 輸入表單不放。
+  const amountReady = incl > 0 && (mixed || !!rate);
+  const net = mixed
+    ? netOf(v8, 8) + netOf(v10, 10)
+    : amountReady
+      ? netOf(incl, rate || 10)
+      : 0;
   const tax = incl - net;
-  const gotAmount = incl > 0;
   const metThreshold = net >= 5000;
   const rateLabel = mixed ? '8% + 10%' : `${rate}`;
+  // 退款方式一定要選。金額現在可以先留白（「只有照片、金額待補」也要
+  // 能存——見 CLAUDE_CODE_DELTA_照片型別.md 第 1 節），但只要使用者已經
+  // 開始填金額，就要連稅率也一起選好才能存，不能存一筆有金額、卻用猜
+  // 的稅率去算退稅的收據——半填不完整、猜稅率，都不如乾脆留白待補。
+  const canSave = !!refundMethod && (incl <= 0 || amountReady);
+
+  function retake() {
+    setParsed(null);
+    setNotAReceipt(false);
+    setManualIncl('');
+    setManualRate(null);
+    setImgs([]);
+    cap.setPhotoPromptOpen(true);
+  }
+
+  // 「不像收據」分支的三顆動作之二、三——「存成物品照片」把這張改標成
+  // 'item'（不再參與 OCR／金額），"還是當收據" 把型別改回 'receipt'
+  // 再關掉這個分支、留在原本「讀不到，手動補」那條路。這張進來的時候
+  // （見 finishConfirm）如果 OCR 已經猜過是「不像收據」，型別會先被
+  // 猜成 'item'——使用者在這裡明確選了「還是當收據」，就要把這個猜測
+  // 改回來，不然畫面上明明說「當收據」，型別卻還是物品照片，兩者對
+  // 不起來。
+  function saveAsItemPhoto() {
+    cap.retypeImg(0, 'item');
+    setNotAReceipt(false);
+  }
+  function keepAsReceipt() {
+    cap.retypeImg(0, 'receipt');
+    setNotAReceipt(false);
+  }
 
   function buildDraft() {
     return {
       shop: parsed?.shop || '',
       date: parsed?.date || todayStr(),
       incl,
-      rate: mixed ? 'mixed' : rate,
+      // 稅率沒選就存 null，不要偷偷猜 10%——三顆稅率按鈕一顆都沒點也
+      // 能存（見上面新加的那一列），存起來的資料要跟畫面上「稅率待選」
+      // 那個標籤講的是同一件事，不能畫面說「還沒選」、存檔卻默默填了
+      // 10%。DetailSheet 顯示這一欄時要對應處理 null（見那邊的修改）。
+      rate: mixed ? 'mixed' : rate || null,
       incl8: mixed ? v8 || null : null,
       incl10: mixed ? v10 || null : null,
       refundMethod: refundMethod || 'unsure',
     };
+  }
+
+  // 「這張看起來不像收據」——OCR 連最低標準都判斷不出來時，不要沉默
+  // 失敗（那就是「¥0」那個 bug 的變體），主動給使用者三個出路，把誤
+  // 操作變成一個有用的分支，不是一句錯誤訊息。這裡完全是另一種畫面
+  // （沒有存起來的標題列按鈕——三個動作選一個之前，這張收據到底要不
+  // 要當收據都還沒決定，沒有「先存」這個選項），所以整個提前 return，
+  // 不跟下面主畫面共用同一棵 JSX。
+  if (notAReceipt) {
+    return (
+      <FullScreenSheet>
+        <div
+          className="sticky top-0 z-10 flex items-center justify-between kaeru-pad"
+          style={{
+            backgroundColor: C.page,
+            borderBottom: `1px solid ${C.ink}`,
+            paddingTop: 'max(16px, env(safe-area-inset-top))',
+            paddingBottom: '16px',
+          }}
+        >
+          <button onClick={onClose} style={{ fontSize: '13px', color: C.sub }}>
+            {t.cancel}
+          </button>
+          <h2 className="font-bold" style={{ fontSize: '15px' }}>
+            {t.quickAddTitle}
+          </h2>
+          {/* 沒有「存起來」——用同寬度的隱形文字撐開版面，標題才會跟
+              有存檔按鈕的畫面（46/49）落在同一個水平位置，不是特例。 */}
+          <span
+            aria-hidden="true"
+            style={{ fontSize: '13px', color: 'transparent', userSelect: 'none' }}
+          >
+            {t.quickAddSave}
+          </span>
+        </div>
+
+        <div
+          className="kaeru-pad py-6"
+          style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}
+        >
+          <div>
+            <div
+              className="mx-auto flex items-center justify-center"
+              style={{
+                width: '100%',
+                maxWidth: '196px',
+                height: '196px',
+                backgroundColor: C.soft,
+                border: `1px solid ${C.line}`,
+              }}
+            >
+              <div
+                className="flex items-center justify-center"
+                style={{
+                  width: '132px',
+                  height: '132px',
+                  borderRadius: '16px',
+                  backgroundColor: C.blueSoft,
+                }}
+              >
+                <ImageIcon size={46} style={{ color: C.sub }} strokeWidth={1.5} />
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+              <Badge tone="clay">{t.quickAddNotReceiptBadge}</Badge>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="font-bold" style={{ fontSize: '19px', color: C.ink }}>
+              {t.quickAddNotReceiptTitle}
+            </h3>
+            <p className="mt-2" style={{ fontSize: '13px', color: C.sub, lineHeight: 1.8 }}>
+              {t.quickAddNotReceiptDesc}
+            </p>
+          </div>
+
+          <div style={{ borderTop: `1px solid ${C.ink}`, paddingTop: '18px' }}>
+            <SectionLabel>{t.quickAddNotReceiptWhatLabel}</SectionLabel>
+            <ol className="mt-4" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {[t.quickAddNotReceiptTip1, t.quickAddNotReceiptTip2, t.quickAddNotReceiptTip3].map(
+                (tip, i) => (
+                  <li key={i} className="flex gap-4">
+                    <span
+                      className="shrink-0 font-bold tabular-nums"
+                      style={{ color: C.blue, opacity: 0.7, fontSize: '12px' }}
+                    >
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <p style={{ fontSize: '12.5px', lineHeight: 1.8, color: C.ink }}>{tip}</p>
+                  </li>
+                ),
+              )}
+            </ol>
+          </div>
+
+          <div>
+            <button
+              onClick={saveAsItemPhoto}
+              className="w-full py-3.5 text-sm font-semibold"
+              style={{ backgroundColor: C.blue, color: '#FFFFFF' }}
+            >
+              {t.quickAddSaveAsItemCta}
+            </button>
+            <button
+              onClick={retake}
+              className="mt-2.5 w-full py-3.5 text-sm font-bold"
+              style={{ border: `1px solid ${C.line}`, color: C.ink }}
+            >
+              {t.quickAddRetakeReceiptCta}
+            </button>
+            <button
+              onClick={keepAsReceipt}
+              className="mt-3 w-full text-center font-semibold"
+              style={{ fontSize: '11.5px', color: C.blueDeep }}
+            >
+              {t.quickAddKeepAsReceiptCta}
+            </button>
+          </div>
+        </div>
+      </FullScreenSheet>
+    );
   }
 
   return (
@@ -6879,7 +7888,7 @@ function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
         </h2>
         <button
           onClick={() => onSaveQuick(buildDraft(), imgs)}
-          disabled={!refundMethod}
+          disabled={!canSave}
           className="font-bold disabled:opacity-40"
           style={{ fontSize: '13px', color: C.blueDeep }}
         >
@@ -6889,61 +7898,186 @@ function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
 
       <div
         className="kaeru-pad py-6"
-        style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}
+        style={{ display: 'flex', flexDirection: 'column', gap: amountFound ? '20px' : '16px' }}
       >
         <div>
           <div
             className="mx-auto"
             style={{
               width: '100%',
-              maxWidth: '196px',
-              height: '196px',
+              // 沒讀到金額這頁多加了一列稅率按鈕，390×844 塞不下還維持
+              // 196px 的預覽——縮小這張，把空間讓給新按鈕，讀到金額的
+              // 畫面（46）沒有新增內容，維持原尺寸。
+              maxWidth: amountFound ? '196px' : '170px',
+              height: amountFound ? '196px' : '170px',
               backgroundColor: C.soft,
               border: `1px solid ${C.line}`,
             }}
           >
-            <img src={imgs[0]} alt="" className="h-full w-full object-contain" />
+            <img src={imgs[0]?.src} alt="" className="h-full w-full object-contain" />
           </div>
           <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-            {gotAmount && <Badge tone="sage">{t.quickAddGotAmount}</Badge>}
+            {photoIsItem ? (
+              <Badge tone="outline">{t.photoTypeItemLabel}</Badge>
+            ) : amountFound ? (
+              <Badge tone="sage">{t.quickAddGotAmount}</Badge>
+            ) : (
+              <Badge tone="clay">{t.quickAddNoAmountBadge}</Badge>
+            )}
           </div>
         </div>
 
-        <div style={{ backgroundColor: C.soft, padding: '14px' }}>
-          <div className="flex items-baseline justify-between gap-3">
-            <div className="min-w-0">
-              <p style={{ fontSize: '11px', color: C.sub }}>{t.quickAddReadIncl}</p>
+        {/* 這裡故意用 amountFound（OCR 本身有沒有讀到），不是
+            amountReady（金額+稅率現在有沒有備齊）——amountReady 每打一個
+            字元就會重新算一次，用它決定要不要切成摘要卡，會變成打第一
+            個數字（只要稅率已經選好）畫面就整個換成摘要卡，輸入框直接
+            消失，後面的數字根本打不進去，卡死在一個不完整的金額上。
+            OCR 沒讀到金額時，這個畫面要從頭到尾維持手動輸入表單，讓
+            使用者能一路打完、改字，不會被自己還沒打完的輸入打斷。
+            amountReady 還是有用——CTA 文案、稅率/金額待補標籤要不要
+            顯示，這些不影響「輸入框在不在」，繼續用 amountReady 沒問題。 */}
+        {amountFound ? (
+          <div style={{ backgroundColor: C.soft, padding: '14px' }}>
+            <div className="flex items-baseline justify-between gap-3">
+              <div className="min-w-0">
+                <p style={{ fontSize: '11px', color: C.sub }}>
+                  {t.quickAddReadIncl}
+                </p>
+                <p
+                  className="mt-1"
+                  style={{ fontSize: '10.5px', color: C.sub, whiteSpace: 'nowrap' }}
+                >
+                  {t.quickAddRateLine(rateLabel, yen(net), yen(tax))}
+                </p>
+              </div>
               <p
-                className="mt-1"
-                style={{ fontSize: '10.5px', color: C.sub, whiteSpace: 'nowrap' }}
+                className="shrink-0 font-semibold tabular-nums"
+                style={{ fontSize: '24px', color: C.ink }}
               >
-                {t.quickAddRateLine(rateLabel, yen(net), yen(tax))}
+                ¥{yen(incl)}
               </p>
             </div>
-            <p
-              className="shrink-0 font-semibold tabular-nums"
-              style={{ fontSize: '24px', color: C.ink }}
+            <div
+              style={{
+                borderTop: `1px solid ${C.line}`,
+                marginTop: '10px',
+                paddingTop: '10px',
+              }}
             >
-              ¥{yen(incl)}
+              <span
+                className="font-semibold"
+                style={{ fontSize: '12px', color: metThreshold ? C.sage : C.clayInk }}
+              >
+                {metThreshold
+                  ? t.reached
+                  : `${t.notReached} · ${t.short} ¥${yen(5000 - net)}`}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <Field label={t.inclAmount}>
+              <div className="flex items-baseline gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={manualIncl}
+                  onChange={(e) => setManualIncl(e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder={photoIsItem ? t.quickAddInclPlaceholderNoPhoto : t.quickAddInclPlaceholder}
+                  className="quick-add-incl-input flex-1 bg-transparent font-semibold tabular-nums outline-none"
+                  style={{
+                    border: 'none',
+                    borderBottom: `1px solid ${C.ink}`,
+                    color: C.ink,
+                    padding: '0 0 8px',
+                    fontSize: '20px',
+                  }}
+                />
+                <span
+                  className="shrink-0 font-semibold"
+                  style={{ fontSize: '13px', color: C.sub, paddingBottom: '8px' }}
+                >
+                  ¥
+                </span>
+              </div>
+            </Field>
+            <style>{`.quick-add-incl-input::placeholder{color:${C.sub};font-weight:600;font-size:20px}`}</style>
+
+            {(incl <= 0 || !rate) && (
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {/* 兩個都是線框——線框＝待補，clay 填色＝警示，這裡是
+                    「還沒填」不是「填錯了」，不能套警示樣式，那是在
+                    考使用者，不是在幫他記帳。 */}
+                {incl <= 0 && <Badge tone="outline">{t.pendingAmountBadge}</Badge>}
+                {!rate && <Badge tone="outline">{t.quickAddRateRequiredBadge}</Badge>}
+              </div>
+            )}
+
+            {/* 稅率待選這個標籤原本掛在畫面上卻沒有任何欄位可以選——
+                標籤指向一個不存在的東西。稅率是使用者自己知道的（買
+                什麼東西幾%），不需要等 OCR，反而是最容易當場點掉的一
+                格，補上這一列三顆按鈕。「兩種都有」故意不在這裡展開
+                兩格輸入——店裡那五秒鐘不塞第二層輸入，直接標成待補，
+                回頭在詳情頁拆。 */}
+            <div className="mt-3">
+              <p
+                className="font-bold"
+                style={{ fontSize: '10.5px', color: C.blue, letterSpacing: '0.22em' }}
+              >
+                {t.taxRate}
+              </p>
+              <div className="mt-2 flex gap-1.5">
+                {[8, 10].map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setManualRate(r)}
+                    className="font-semibold tabular-nums"
+                    style={{
+                      flex: 1,
+                      padding: '10px 0',
+                      fontSize: '13px',
+                      backgroundColor: manualRate === r ? C.blue : C.soft,
+                      color: manualRate === r ? '#FFFFFF' : C.ink,
+                      border: `1px solid ${manualRate === r ? C.blue : C.line}`,
+                      borderRadius: 0,
+                    }}
+                  >
+                    {r}%
+                  </button>
+                ))}
+                <button
+                  onClick={() => setManualRate('mixed')}
+                  className="font-semibold"
+                  style={{
+                    flex: 1.4,
+                    padding: '10px 0',
+                    fontSize: '13px',
+                    backgroundColor: manualRate === 'mixed' ? C.blue : C.soft,
+                    color: manualRate === 'mixed' ? '#FFFFFF' : C.ink,
+                    border: `1px solid ${manualRate === 'mixed' ? C.blue : C.line}`,
+                    borderRadius: 0,
+                  }}
+                >
+                  {t.taxRateBoth}
+                </button>
+              </div>
+              <p className="mt-2" style={{ fontSize: '11.5px', color: C.sub, lineHeight: 1.6 }}>
+                {t.quickAddManualRateHint}
+              </p>
+            </div>
+
+            {/* 這段文案原本假設「這是收據，只是照片模糊沒讀到」——選過
+                「存成物品照片」之後，這張已經不是收據了，繼續講「收據
+                上的合計」「照片有點模糊」會很矛盾（使用者剛剛才告訴
+                app 這根本不是收據，畫面卻還在講「你的收據」）。金額本
+                身這裡也不是必填——底下「存起來，金額晚點補」CTA 只要
+                退款方式選了就能按，這段文案要講清楚這件事，不然使用者
+                會誤以為金額框沒填就存不了。 */}
+            <p className="mt-2.5" style={{ fontSize: '11.5px', color: C.sub, lineHeight: 1.7 }}>
+              {photoIsItem ? t.quickAddNoAmountDescItemPhoto : t.quickAddNoAmountDesc}
             </p>
           </div>
-          <div
-            style={{
-              borderTop: `1px solid ${C.line}`,
-              marginTop: '10px',
-              paddingTop: '10px',
-            }}
-          >
-            <span
-              className="font-semibold"
-              style={{ fontSize: '12px', color: metThreshold ? C.sage : C.clayInk }}
-            >
-              {metThreshold
-                ? t.reached
-                : `${t.notReached} · ${t.short} ¥${yen(5000 - net)}`}
-            </span>
-          </div>
-        </div>
+        )}
 
         <div>
           <p className="font-bold" style={{ fontSize: '13px', color: C.ink }}>
@@ -6986,26 +8120,48 @@ function QuickAddFlow({ t, onClose, onSaveQuick, onSaveFull }) {
                 {t.pendingFieldsDesc}
               </p>
             </div>
-            <Badge tone="outline">{t.pendingBadge}</Badge>
+            <Badge tone="outline">{t.pendingFieldBadge}</Badge>
           </div>
         )}
 
         <div>
+          {/* 金額待補不再停用主 CTA——擋住不如誠實，這個 App 是幫使用者
+              記帳的，不是在考他。金額還沒填也能先存，只是進去以後這張
+              收據會用「待補」樣式顯示、不計入預估可退稅額，直到補上為
+              止。唯一還會讓這顆按鈕變灰的是退款方式沒選，或金額已經
+              填了一半、稅率還沒選（見 canSave）。 */}
           <button
             onClick={() => onSaveQuick(buildDraft(), imgs)}
-            disabled={!refundMethod}
+            disabled={!canSave}
             className="w-full py-3.5 text-sm font-semibold disabled:opacity-40"
             style={{ backgroundColor: C.blue, color: '#FFFFFF' }}
           >
-            {t.quickSaveCta}
+            {amountReady ? t.quickSaveCta : t.quickSaveCtaAmountPending}
           </button>
-          <button
-            onClick={() => onSaveFull(buildDraft(), imgs)}
-            className="mt-3 w-full text-center font-semibold"
-            style={{ fontSize: '13px', color: C.blueDeep }}
-          >
-            {t.quickFullFormCta}
-          </button>
+          {!amountReady && (
+            <p className="mt-2 text-center" style={{ fontSize: '11px', color: C.sub }}>
+              {t.quickSaveCtaAmountPendingHint}
+            </p>
+          )}
+          {amountReady ? (
+            <button
+              onClick={() => onSaveFull(buildDraft(), imgs)}
+              className="mt-3 w-full text-center font-semibold"
+              style={{ fontSize: '13px', color: C.blueDeep }}
+            >
+              {t.quickFullFormCta}
+            </button>
+          ) : (
+            // 讀不到金額時，比起跳去填完整表單，重拍一張清楚的照片更
+            // 可能直接解決問題，所以次要動作換成這個，不是原本的連結。
+            <button
+              onClick={retake}
+              className="mt-3 w-full text-center font-semibold"
+              style={{ fontSize: '13px', color: C.blueDeep }}
+            >
+              {t.retakePhotoCta}
+            </button>
+          )}
         </div>
       </div>
     </FullScreenSheet>
@@ -7108,6 +8264,10 @@ function EditSheet({ t, initial, photos, onClose, onSave }) {
     imgs,
     setImgs,
     onParsed: (parsed) => {
+      // usePhotoCapture 現在不管有沒有讀到東西都會呼叫這個 callback
+      // （讀不到也要讓呼叫端知道），完整表單不需要「不像收據」那個
+      // 分支，讀不到就什麼都不做，維持原本已經填的內容。
+      if (!parsed) return;
       if (parsed.shop && !shop.trim()) setShop(parsed.shop);
       if (parsed.date) setDate(parsed.date);
       if (parsed.rate === 'mixed') {
@@ -7193,7 +8353,11 @@ function EditSheet({ t, initial, photos, onClose, onSave }) {
         </h2>
         <button
           onClick={save}
-          disabled={!shop.trim() || !effectiveIncl}
+          // 必填只有金額（跟稅率，但稅率一定有值，見上面 rate 的
+          // useState 預設）——店名跟日期一樣可以待補，完整表單不該比
+          // 快路更嚴格。少了這個欄位就存不了收據，見
+          // CLAUDE_CODE_DELTA_照片型別.md 第 1 節。
+          disabled={!effectiveIncl}
           className="font-bold disabled:opacity-40"
           style={{ fontSize: '13px', color: C.blueDeep }}
         >
@@ -7566,106 +8730,12 @@ function EditSheet({ t, initial, photos, onClose, onSave }) {
           </p>
         )}
 
-        <Field label={t.photo} as="div">
-          {imgs.length > 0 ? (
-            <>
-              <div className="flex flex-wrap gap-2">
-                {imgs.map((src, i) => (
-                  <div
-                    key={i}
-                    className="relative"
-                    style={{ width: '74px', height: '74px', backgroundColor: C.soft, border: `1px solid ${C.line}` }}
-                  >
-                    <button
-                      onClick={() => setLightboxIndex(i)}
-                      className="block h-full w-full"
-                    >
-                      <img src={src} alt="" className="h-full w-full object-cover" />
-                    </button>
-                    <span
-                      className="absolute bottom-1 left-1 tabular-nums"
-                      style={{ fontSize: '9.5px', color: C.sub }}
-                    >
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        cap.removeImg(i);
-                      }}
-                      className="absolute flex items-center justify-center"
-                      style={{
-                        top: '-1px',
-                        right: '-1px',
-                        width: '44px',
-                        height: '44px',
-                        marginTop: '-12px',
-                        marginRight: '-12px',
-                        paddingBottom: '12px',
-                        paddingLeft: '12px',
-                      }}
-                    >
-                      <span
-                        className="flex items-center justify-center"
-                        style={{ width: '20px', height: '20px', backgroundColor: C.ink, color: '#FFFFFF' }}
-                      >
-                        <X size={12} />
-                      </span>
-                    </button>
-                  </div>
-                ))}
-                {cap.remaining > 0 && (
-                  <button
-                    onClick={cap.pickPhoto}
-                    className="flex items-center justify-center"
-                    style={{
-                      width: '74px',
-                      height: '74px',
-                      border: `1px dashed ${C.line}`,
-                      color: C.sub,
-                    }}
-                  >
-                    <Plus size={18} />
-                  </button>
-                )}
-              </div>
-              <p className="mt-2" style={{ fontSize: '11px', lineHeight: 1.7, color: C.sub }}>
-                {t.thumbHint(MAX_PHOTOS)}
-              </p>
-            </>
-          ) : cap.photoDenied ? (
-            <p style={{ color: C.sub, fontSize: '13px', lineHeight: 1.8 }}>
-              {cap.photoDenied === 'camera' ? t.cameraDenied : t.photoDenied}
-              {'　'}
-              <button
-                onClick={() => ReceiptScanner.openAppSettings().catch(() => {})}
-                style={{ color: C.blueDeep, textDecoration: 'underline' }}
-              >
-                {t.openSettings}
-              </button>
-            </p>
-          ) : (
-            <button
-              onClick={cap.pickPhoto}
-              className="flex w-full items-center justify-center text-sm"
-              style={{
-                border: `1px dashed ${C.line}`,
-                color: C.sub,
-                height: '74px',
-              }}
-            >
-              {t.takePhoto}
-            </button>
-          )}
-          <input
-            ref={cap.fileRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={cap.onPick}
-            className="hidden"
-          />
-        </Field>
+        <PhotoAttachments
+          t={t}
+          photos={imgs}
+          cap={cap}
+          onOpenLightbox={setLightboxIndex}
+        />
 
         <Field label={t.note}>
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
@@ -7692,8 +8762,8 @@ function EditSheet({ t, initial, photos, onClose, onSave }) {
         }}
         onRotatePhoto={async (i) => {
           try {
-            const rotated = await rotateImageSrc(imgs[i], 90);
-            setImgs((prev) => prev.map((p, pi) => (pi === i ? rotated : p)));
+            const rotated = await rotateImageSrc(imgs[i].src, 90);
+            setImgs((prev) => prev.map((p, pi) => (pi === i ? { ...p, src: rotated } : p)));
           } catch (e) {}
         }}
       />
@@ -7724,7 +8794,7 @@ function PhotoConfirmSheet({ t, src, fromScan, onRetake, onUse, onClose }) {
   const [rotation, setRotation] = useState(0);
   const [contrastOn, setContrastOn] = useState(false);
   const [outBytes, setOutBytes] = useState(null);
-  const [ocr, setOcr] = useState({ loading: true, parsed: null });
+  const [ocr, setOcr] = useState({ loading: true, parsed: null, looksLikeReceipt: true });
   const [inBytes, setInBytes] = useState(0);
   const wrapperRef = useRef(null);
   const imgRef = useRef(null);
@@ -7784,11 +8854,18 @@ function PhotoConfirmSheet({ t, src, fromScan, onRetake, onUse, onClose }) {
           reconstructed,
         );
         const parsed = parseReceiptOCR(forParse);
+        const looksLikeReceipt = looksLikeReceiptText(forParse);
         console.log('[ReceiptScanner] parsed:', parsed);
-        setOcr({ loading: false, parsed });
+        console.log('[ReceiptScanner] looks like receipt:', looksLikeReceipt);
+        setOcr({ loading: false, parsed, looksLikeReceipt });
       } catch (err) {
         console.error('[ReceiptScanner] recognizeText failed:', err);
-        if (alive) setOcr({ loading: false, parsed: null });
+        // 辨識這一步本身失敗（權限、原生端出錯）跟「拍到的東西真的不
+        // 像收據」是不一樣的兩件事，這裡沒有任何文字可以判斷，不能
+        // 直接當作「不像收據」——那樣使用者什麼都沒做錯，卻被問一句
+        // 「這是不是收據」，莫名其妙。looksLikeReceipt 給 true，讓它
+        // 照舊走「讀不到，手動補」那條路。
+        if (alive) setOcr({ loading: false, parsed: null, looksLikeReceipt: true });
       }
     })();
     return () => {
@@ -7850,14 +8927,24 @@ function PhotoConfirmSheet({ t, src, fromScan, onRetake, onUse, onClose }) {
     return { x, y };
   }
 
+  // 這裡原本 onPointerDown／onTouchStart 兩個都綁同一個 handler，外加
+  // window 上 pointermove/touchmove、pointerup/touchend 兩套都掛——手機
+  // 上一次觸控會同時送出 pointer 跟 touch 兩種事件，等於整段邏輯跑兩
+  // 次（其實無害，只是浪費），但 React 對 touchstart 這個合成事件預設
+  // 是 passive，裡面呼叫 e.preventDefault() 永遠不會真的生效，還會在
+  // console 噴「Unable to preventDefault inside passive event listener
+  // invocation」這個警告，兩次觸控就噴兩次。這個 app 目標的 WebView
+  // （Android Chrome、iOS WKWebView）Pointer Events 都支援得很完整，
+  // 別的地方（放大檢視的縮放/滑動、長按改型別）也都只靠 Pointer
+  // Events，這裡改成只留 pointer 那一套，touch 那套整個拿掉——功能不受
+  // 影響，順便把這個一直存在、一直被忽略的警告清掉。
   function onHandleDown(i) {
     return (e) => {
       e.preventDefault();
       dragIdx.current = i;
       const move = (ev) => {
         if (dragIdx.current === null) return;
-        const p = ev.touches ? ev.touches[0] : ev;
-        const f = ptToFraction(p.clientX, p.clientY);
+        const f = ptToFraction(ev.clientX, ev.clientY);
         setCorners((prev) => {
           const next = [...prev];
           next[dragIdx.current] = f;
@@ -7868,22 +8955,41 @@ function PhotoConfirmSheet({ t, src, fromScan, onRetake, onUse, onClose }) {
         dragIdx.current = null;
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
-        window.removeEventListener('touchmove', move);
-        window.removeEventListener('touchend', up);
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
-      window.addEventListener('touchmove', move, { passive: false });
-      window.addEventListener('touchend', up);
     };
   }
 
+  // ocr.parsed 不是 null 不代表「讀到金額了」——parseReceiptOCR 只要
+  // 抓到店名或日期其中一個就會回傳非 null 的物件（見該函式註解），店名
+  // 判斷本身又很鬆，隨便什麼包裝上的文字都可能被當成店名。下面「使用
+  // 這張並帶入金額」的按鈕文案跟金額預覽，如果只看 ocr.parsed 有沒有
+  // 值，會在只抓到店名、完全沒抓到金額的情況下（實測：拍一包咖啡豆，
+  // parsed:{shop:'DECAF'}，沒有 incl）還是顯示「帶入金額」、金額預覽
+  // 印出 ¥0——跟這次很早就修過的「¥0 謊言」是同一種錯法，只是這裡漏
+  // 改到。要看真的有沒有金額，得檢查 incl／incl8／incl10 本身。
+  const ocrHasAmount = !!(
+    ocr.parsed &&
+    (ocr.parsed.incl || ocr.parsed.incl8 || ocr.parsed.incl10)
+  );
+
+  // 這裡拿的 ocr.parsed／ocr.looksLikeReceipt 一定要是 OCR 真的跑完之後
+  // 的結果——OCR 還沒回來時 ocr 是初始值 {parsed:null,
+  // looksLikeReceipt:true}，這個 true 是故意的預設（辨識本身失敗時要
+  // 當作「沒判斷」，見下面那個 effect 的註解），但如果使用者手比較快、
+  // 在 OCR 還沒跑完就按了「使用照片」，會把這個「還沒判斷」的預設值當
+  // 成「看起來像收據」的真結果送出去，讓一張完全不是收據的照片因為
+  // OCR 還沒跑完，就被誤判成「像收據」，掉進金額待補畫面，不是「不像
+  // 收據」畫面——這不是分類規則錯，是規則根本沒跑到就被拿去用了。兩顆
+  // 「使用照片」按鈕都要在 ocr.loading 時停用，擋掉這個時間差。
   function handleUse() {
+    if (ocr.loading) return;
     let finalSrc = src;
     try {
       finalSrc = buildOutput();
     } catch (e) {}
-    onUse(finalSrc, ocr.parsed);
+    onUse(finalSrc, ocr.parsed, ocr.looksLikeReceipt);
   }
 
   const toolBtnStyle = (active) => ({
@@ -7916,7 +9022,8 @@ function PhotoConfirmSheet({ t, src, fromScan, onRetake, onUse, onClose }) {
         </h2>
         <button
           onClick={handleUse}
-          className="font-bold"
+          disabled={ocr.loading}
+          className="font-bold disabled:opacity-40"
           style={{ fontSize: '13px', color: C.blueDeep }}
         >
           {t.usePhoto}
@@ -7943,22 +9050,36 @@ function PhotoConfirmSheet({ t, src, fromScan, onRetake, onUse, onClose }) {
               className="block"
               style={{ height: '100%', width: 'auto' }}
             />
+            {/* polygon 的 points 屬性只吃數字，不吃百分比字串——
+                「4%,4% ...」這種寫法在真機瀏覽器上會直接被判定成無效
+                值，整個 polygon 悄悄不畫出來（拖曳角點還是能動，只是
+                裁切範圍的半透明藍色四邊形完全看不到，使用者拖角點時
+                少了最直接的視覺回饋）。用 viewBox 開一個 0~100 的座標
+                系統，points 給實際數字（0~100，剛好對應 corners 本來
+                就是 0~1 的比例），polygon 才會真的畫出來；
+                preserveAspectRatio="none" 是必須的，否則長寬比不是
+                1:1 的照片，viewBox 會保留長寬比、不會貼齊整個容器，跟
+                角點把手（純 CSS % top/left，本來就貼齊整個容器）對不
+                起來。vectorEffect 讓邊框粗細不會因為 viewBox 縮放而
+                跟著變粗變細。 */}
             <svg
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
               className="pointer-events-none absolute inset-0 h-full w-full"
               style={{ position: 'absolute', top: 0, left: 0 }}
             >
               <polygon
-                points={corners.map((c) => `${c.x * 100}%,${c.y * 100}%`).join(' ')}
+                points={corners.map((c) => `${c.x * 100},${c.y * 100}`).join(' ')}
                 fill="rgba(119,137,154,0.12)"
                 stroke={C.blue}
                 strokeWidth="1.5"
+                vectorEffect="non-scaling-stroke"
               />
             </svg>
             {corners.map((c, i) => (
               <div
                 key={i}
                 onPointerDown={onHandleDown(i)}
-                onTouchStart={onHandleDown(i)}
                 className="absolute flex items-center justify-center"
                 style={{
                   left: `${c.x * 100}%`,
@@ -8025,7 +9146,7 @@ function PhotoConfirmSheet({ t, src, fromScan, onRetake, onUse, onClose }) {
           </button>
         </div>
 
-        {!ocr.loading && ocr.parsed && (
+        {!ocr.loading && ocrHasAmount && (
           <div
             className="mt-4 flex items-end justify-between"
             style={{ backgroundColor: C.soft, padding: '14px' }}
@@ -8052,10 +9173,15 @@ function PhotoConfirmSheet({ t, src, fromScan, onRetake, onUse, onClose }) {
 
         <button
           onClick={handleUse}
-          className="mt-4 w-full py-3.5 text-sm font-semibold"
+          disabled={ocr.loading}
+          className="mt-4 w-full py-3.5 text-sm font-semibold disabled:opacity-40"
           style={{ backgroundColor: C.blue, color: '#FFFFFF' }}
         >
-          {!ocr.loading && ocr.parsed ? t.useWithAmount : t.useOnly}
+          {ocr.loading
+            ? t.ocrRecognizing
+            : ocrHasAmount
+              ? t.useWithAmount
+              : t.useOnly}
         </button>
       </div>
     </FullScreenSheet>
@@ -8079,6 +9205,7 @@ function DetailSheet({
   onPhotosChange,
   taxOf,
   settings,
+  hasDeparture,
   onClose,
   onEdit,
   onStatus,
@@ -8101,66 +9228,9 @@ function DetailSheet({
   const blocked = dead || !groupOk;
   const cur = STAGES.indexOf(item.status);
   const refunded = item.status === 'refunded';
-  const [reorderMode, setReorderMode] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(null);
-  const [dragState, setDragState] = useState(null); // { from, dx } | null
   useBackClose(lightboxIndex !== null, () => setLightboxIndex(null));
   const cap = usePhotoCapture({ imgs: photos, setImgs: (updater) => onPhotosChange(typeof updater === 'function' ? updater(photos) : updater) });
-
-  // 拖曳排序的 pointermove/up 是一次性註冊到 window 上、整段手勢都不會
-  // 重新註冊的 closure，如果直接讀 photos 這個 prop，抓到的永遠是「手指
-  // 按下那一刻」的舊陣列——連續跨兩格以上拖曳時，第二次 movePhoto 還是
-  // 從最原始的陣列切，不會疊加第一次的結果，排序會兜不起來；如果拖曳
-  // 期間剛好有別的地方（例如同時刪除一張照片）改了 photos，這裡寫回去
-  // 的舊陣列還會把那次刪除蓋掉，等於使用者以為刪掉的照片自己跑回來。
-  // 用一個每次 render 都同步更新的 ref，movePhoto 永遠讀最新的陣列。
-  const photosRef = useRef(photos);
-  photosRef.current = photos;
-
-  function movePhoto(from, to) {
-    if (from === to) return;
-    const next = [...photosRef.current];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    onPhotosChange(next);
-  }
-
-  // 整理模式：拖曳靠 pointer event 手動算位移，不用 HTML5 native drag（手機
-  // 觸控對 native drag 支援很差）。每格寬度固定（72px縮圖 + 8px間距），
-  // 拖曳超過半格寬就跟旁邊那格交換，鬆手時位置已經是最終結果。
-  const THUMB_STEP = 80;
-  function onThumbPointerDown(i) {
-    return (e) => {
-      e.preventDefault();
-      const startX = (e.touches ? e.touches[0] : e).clientX;
-      let current = i;
-      const move = (ev) => {
-        const p = ev.touches ? ev.touches[0] : ev;
-        const dx = p.clientX - startX;
-        setDragState({ from: i, dx });
-        const shift = Math.round(dx / THUMB_STEP);
-        const target = Math.max(
-          0,
-          Math.min(photosRef.current.length - 1, i + shift),
-        );
-        if (target !== current) {
-          movePhoto(current, target);
-          current = target;
-        }
-      };
-      const up = () => {
-        setDragState(null);
-        window.removeEventListener('pointermove', move);
-        window.removeEventListener('pointerup', up);
-        window.removeEventListener('touchmove', move);
-        window.removeEventListener('touchend', up);
-      };
-      window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', up);
-      window.addEventListener('touchmove', move, { passive: false });
-      window.addEventListener('touchend', up);
-    };
-  }
   const fmtShort = (iso) => {
     const dt = new Date(iso + 'T00:00:00');
     return `${dt.getMonth() + 1}/${dt.getDate()}`;
@@ -8216,12 +9286,17 @@ function DetailSheet({
             ? ` · ${consumedDead ? t.stalledShort : t.expiredBadge}`
             : refunded
               ? ` · ${t.caseClosed}`
-              : // d < 0 在這裡代表「已查驗但超過 90 天」（expiredDead 已經
-                // 排除掉這個狀態）——deadline 對已查驗的收據沒有意義了，
-                // 不要顯示負數天數，乾脆不顯示這段。
-                d !== null && d >= 0
-                ? ` · ${t.warnDeadline} ${d} ${t.days}`
-                : ''}
+              : !hasDeparture
+                // 沒有回程時間，「剩 N 天」這個數字沒有實際意義（見
+                // CLAUDE_CODE_DELTA_未設定回程時間.md），跟清單卡片的
+                // 「期限待定」用同一句話，不要另外顯示一個猜出來的天數。
+                ? ` · ${t.deadlinePendingBadge}`
+                : // d < 0 在這裡代表「已查驗但超過 90 天」（expiredDead 已經
+                  // 排除掉這個狀態）——deadline 對已查驗的收據沒有意義了，
+                  // 不要顯示負數天數，乾脆不顯示這段。
+                  d !== null && d >= 0
+                  ? ` · ${t.warnDeadline} ${d} ${t.days}`
+                  : ''}
         </p>
 
         <div
@@ -8272,7 +9347,8 @@ function DetailSheet({
           }}
         >
           <span>
-            {t.taxRate} {item.rate === 'mixed' ? '8% / 10%' : `${item.rate}%`}
+            {t.taxRate}{' '}
+            {item.rate === 'mixed' ? '8% / 10%' : item.rate ? `${item.rate}%` : t.unfilled}
           </span>
           <span>
             {t.netAmount} ¥{yen(netOfItem(item))}
@@ -8504,131 +9580,12 @@ function DetailSheet({
         )}
 
         {!dead && (
-          <div className="mt-6">
-            <div className="flex items-center justify-between">
-              <p
-                className="font-bold"
-                style={{ color: C.blue, fontSize: '10.5px', letterSpacing: '0.22em' }}
-              >
-                {t.photo}
-              </p>
-              {photos.length > 1 && (
-                <button
-                  onClick={() => setReorderMode((v) => !v)}
-                  className="font-semibold"
-                  style={{ color: C.blueDeep, fontSize: '11.5px' }}
-                >
-                  {reorderMode ? t.doneReorder : t.reorderPhotos}
-                </button>
-              )}
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              {photos.map((src, i) => (
-                <div
-                  key={i}
-                  onPointerDown={reorderMode ? onThumbPointerDown(i) : undefined}
-                  onTouchStart={reorderMode ? onThumbPointerDown(i) : undefined}
-                  onClick={() => !reorderMode && setLightboxIndex(i)}
-                  className="relative shrink-0"
-                  style={{
-                    width: '72px',
-                    height: '96px',
-                    backgroundColor: C.soft,
-                    border: `1px solid ${C.line}`,
-                    touchAction: reorderMode ? 'none' : 'auto',
-                    cursor: reorderMode ? 'grab' : 'pointer',
-                    transform:
-                      dragState && dragState.from === i
-                        ? `translateX(${dragState.dx}px)`
-                        : 'none',
-                    zIndex: dragState && dragState.from === i ? 10 : 1,
-                  }}
-                >
-                  <img src={src} alt="" className="h-full w-full object-cover" />
-                  <span
-                    className="absolute bottom-1 left-1 tabular-nums"
-                    style={{ fontSize: '9.5px', color: C.sub }}
-                  >
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  {!reorderMode && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        cap.removeImg(i);
-                      }}
-                      className="absolute flex items-center justify-center"
-                      style={{
-                        top: '-1px',
-                        right: '-1px',
-                        width: '44px',
-                        height: '44px',
-                        marginTop: '-12px',
-                        marginRight: '-12px',
-                        paddingBottom: '12px',
-                        paddingLeft: '12px',
-                      }}
-                    >
-                      <span
-                        className="flex items-center justify-center"
-                        style={{
-                          width: '20px',
-                          height: '20px',
-                          backgroundColor: C.ink,
-                          color: '#FFFFFF',
-                        }}
-                      >
-                        <X size={12} />
-                      </span>
-                    </button>
-                  )}
-                </div>
-              ))}
-              {photos.length < MAX_PHOTOS && (
-                <button
-                  onClick={cap.pickPhoto}
-                  className="flex shrink-0 flex-col items-center justify-center gap-1"
-                  style={{ width: '72px', height: '96px', border: `1px dashed ${C.line}`, color: C.sub }}
-                >
-                  <Plus size={16} />
-                  <span style={{ fontSize: '9.5px' }}>{t.addOneMore}</span>
-                </button>
-              )}
-            </div>
-
-            {cap.photoDenied ? (
-              <p className="mt-2" style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.7 }}>
-                {cap.photoDenied === 'camera' ? t.cameraDenied : t.photoDenied}
-                {'　'}
-                <button
-                  onClick={() => ReceiptScanner.openAppSettings().catch(() => {})}
-                  style={{ color: C.blueDeep, textDecoration: 'underline' }}
-                >
-                  {t.openSettings}
-                </button>
-              </p>
-            ) : (
-              <p className="mt-2" style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.7 }}>
-                {t.thumbHint(MAX_PHOTOS)}
-              </p>
-            )}
-
-            <div className="mt-3" style={{ backgroundColor: C.soft, padding: '14px' }}>
-              <p style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.8 }}>
-                {t.photoStorageNote}
-              </p>
-            </div>
-
-            <input
-              ref={cap.fileRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={cap.onPick}
-              className="hidden"
-            />
-          </div>
+          <PhotoAttachments
+            t={t}
+            photos={photos}
+            cap={cap}
+            onOpenLightbox={setLightboxIndex}
+          />
         )}
       </div>
     </FullScreenSheet>
@@ -8652,13 +9609,300 @@ function DetailSheet({
         }}
         onRotatePhoto={async (i) => {
           try {
-            const rotated = await rotateImageSrc(photos[i], 90);
-            onPhotosChange(photos.map((p, pi) => (pi === i ? rotated : p)));
+            const rotated = await rotateImageSrc(photos[i].src, 90);
+            onPhotosChange(photos.map((p, pi) => (pi === i ? { ...p, src: rotated } : p)));
           } catch (e) {}
         }}
       />
     )}
     </>
+  );
+}
+
+// 一張照片是「收據照片」（憑證，跑過 OCR、是金額來源）還是「物品照片」
+// （純備忘，不跑辨識、不影響金額）——長按縮圖跳出來的小選單，兩者互斥、
+// 選了就換，跟 BottomSheet 裡其他「選單式」動作用同一套視覺語言。
+function PhotoTypeSheet({ t, current, onPick, onClose }) {
+  return (
+    <BottomSheet onClose={onClose}>
+      <div className="flex items-center justify-between">
+        <h2 className="font-bold" style={{ fontSize: '18px' }}>
+          {t.photoTypeSheetTitle}
+        </h2>
+        <button onClick={onClose} style={{ color: C.sub }}>
+          <X size={18} />
+        </button>
+      </div>
+      <div className="mt-3">
+        {[
+          { v: 'receipt', label: t.photoTypeReceiptLabel, hint: t.photoTypeReceiptHint },
+          { v: 'item', label: t.photoTypeItemLabel, hint: t.photoTypeItemHint },
+        ].map((opt, i) => (
+          <button
+            key={opt.v}
+            onClick={() => onPick(opt.v)}
+            className="flex w-full items-center justify-between py-4 text-left"
+            style={{ borderTop: `1px solid ${i === 0 ? C.ink : C.line}` }}
+          >
+            <span>
+              <span
+                className="block font-bold"
+                style={{ fontSize: '15px', color: current === opt.v ? C.blueDeep : C.ink }}
+              >
+                {opt.label}
+              </span>
+              <span className="block" style={{ fontSize: '11.5px', color: C.sub }}>
+                {opt.hint}
+              </span>
+            </span>
+            {current === opt.v && <CheckCircle2 size={16} style={{ color: C.blueDeep, flexShrink: 0 }} />}
+          </button>
+        ))}
+      </div>
+    </BottomSheet>
+  );
+}
+
+// 附件區共用元件：DetailSheet／EditSheet 都用這個，兩邊的照片型別呈現
+// 要一致，不要各刻一份各長各的樣。收據照片（憑證）跟物品照片（備忘）
+// 分兩組顯示；型別隨時可以長按縮圖切換——使用者不用在拍照前先決定要
+// 拍哪一種，那個決定放在拍完之後。
+function PhotoAttachments({ t, photos, cap, onOpenLightbox }) {
+  const [typeSheetIndex, setTypeSheetIndex] = useState(null);
+  const withIndex = photos.map((p, i) => ({ ...p, i }));
+  const receiptPhotos = withIndex.filter((p) => p.type !== 'item');
+  const itemPhotos = withIndex.filter((p) => p.type === 'item');
+
+  // 長按跟點擊共用同一個 pointerdown——480ms 內放開算一般點擊（開放大
+  // 檢視），撐過 480ms 才算長按（跳型別選單）。用一個 ref 記有沒有真的
+  // 觸發長按，觸發了就在 onClick 那端把這次點擊吃掉，不會長按完又順便
+  // 開了放大檢視。
+  const pressTimer = useRef(null);
+  const longPressed = useRef(false);
+  function startPress(i) {
+    longPressed.current = false;
+    pressTimer.current = setTimeout(() => {
+      longPressed.current = true;
+      setTypeSheetIndex(i);
+    }, 480);
+  }
+  function clearPress() {
+    clearTimeout(pressTimer.current);
+  }
+  function tapTile(i) {
+    if (longPressed.current) {
+      longPressed.current = false;
+      return;
+    }
+    onOpenLightbox(i);
+  }
+
+  function Tile({ item, receiptShape }) {
+    const isReceipt = item.type !== 'item';
+    return (
+      <div
+        onPointerDown={() => startPress(item.i)}
+        onPointerUp={clearPress}
+        onPointerLeave={clearPress}
+        onPointerCancel={clearPress}
+        onClick={() => tapTile(item.i)}
+        // 手機瀏覽器/WebView 對「長按圖片」本來就有自己的原生手勢
+        // （iOS 會跳出預覽＋分享選單、Android 會跳出「儲存圖片」選單）
+        // ——沒擋掉的話，原生那套會搶在我們自己的 480ms 計時器前面跳
+        // 出來，長按改型別在真機上根本按不到，即使桌機瀏覽器測起來
+        // 一切正常（桌機沒有這個原生手勢，才會測不出這個問題）。
+        // touchAction: none 順便擋掉滑動手勢把長按誤判成放棄。
+        onContextMenu={(e) => e.preventDefault()}
+        className="relative shrink-0"
+        style={{
+          width: '74px',
+          height: receiptShape ? '96px' : '74px',
+          backgroundColor: C.soft,
+          border: `1px solid ${isReceipt ? C.ink : C.line}`,
+          cursor: 'pointer',
+          touchAction: 'none',
+          WebkitTouchCallout: 'none',
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
+        }}
+      >
+        <img
+          src={item.src}
+          alt=""
+          draggable={false}
+          className="h-full w-full object-cover"
+          style={{ WebkitTouchCallout: 'none', pointerEvents: 'none' }}
+        />
+        {isReceipt && (
+          <span
+            className="absolute bottom-0 left-0 font-semibold"
+            style={{ fontSize: '9px', color: '#FFFFFF', backgroundColor: C.blue, padding: '2px 5px' }}
+          >
+            {t.photoTypeReceiptBadge}
+          </span>
+        )}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            cap.removeImg(item.i);
+          }}
+          // 刪除鈕疊在縮圖上面，pointerdown 沒擋住的話會先冒泡到外層
+          // div 啟動長按計時器——手比較慢地按住這顆鈕，會變成「刪除同
+          // 時跳出改型別選單」，兩個動作搶在一起。這裡直接不讓它冒泡。
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute flex items-center justify-center"
+          style={{
+            top: '-1px',
+            right: '-1px',
+            width: '40px',
+            height: '40px',
+            marginTop: '-10px',
+            marginRight: '-10px',
+            paddingBottom: '10px',
+            paddingLeft: '10px',
+          }}
+        >
+          <span
+            className="flex items-center justify-center"
+            style={{ width: '18px', height: '18px', backgroundColor: C.ink, color: '#FFFFFF' }}
+          >
+            <X size={11} />
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-6">
+      <div className="flex items-center justify-between">
+        <p
+          className="font-bold"
+          style={{ color: C.blue, fontSize: '10.5px', letterSpacing: '0.22em' }}
+        >
+          {t.photoSectionLabel(photos.length)}
+        </p>
+        {photos.length > 0 && photos.length < MAX_PHOTOS && (
+          <button
+            onClick={cap.pickPhoto}
+            className="font-semibold"
+            style={{ color: C.blueDeep, fontSize: '12px' }}
+          >
+            {t.addPhotoCta}
+          </button>
+        )}
+      </div>
+
+      {photos.length === 0 ? (
+        cap.photoDenied ? (
+          <p className="mt-3" style={{ color: C.sub, fontSize: '13px', lineHeight: 1.8 }}>
+            {cap.photoDenied === 'camera' ? t.cameraDenied : t.photoDenied}
+            {'　'}
+            <button
+              onClick={() => ReceiptScanner.openAppSettings().catch(() => {})}
+              style={{ color: C.blueDeep, textDecoration: 'underline' }}
+            >
+              {t.openSettings}
+            </button>
+          </p>
+        ) : (
+          <button
+            onClick={cap.pickPhoto}
+            className="mt-3 flex w-full items-center justify-center text-sm"
+            style={{ border: `1px dashed ${C.line}`, color: C.sub, height: '74px' }}
+          >
+            {t.takePhoto}
+          </button>
+        )
+      ) : (
+        <>
+          {receiptPhotos.length > 0 && (
+            <div className="mt-3">
+              <p style={{ fontSize: '11.5px', color: C.sub }}>
+                {t.photoGroupReceipt(receiptPhotos.length)}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {receiptPhotos.map((p) => (
+                  <Tile key={p.i} item={p} receiptShape />
+                ))}
+              </div>
+            </div>
+          )}
+          {itemPhotos.length > 0 && (
+            <div className="mt-3">
+              <p style={{ fontSize: '11.5px', color: C.sub }}>
+                {t.photoGroupItem(itemPhotos.length)}
+              </p>
+              <div className="mt-1.5 flex flex-wrap" style={{ gap: '9px' }}>
+                {itemPhotos.map((p) => (
+                  <Tile key={p.i} item={p} />
+                ))}
+                {photos.length < MAX_PHOTOS && (
+                  <button
+                    onClick={cap.pickPhoto}
+                    className="flex shrink-0 items-center justify-center"
+                    style={{ width: '74px', height: '74px', border: `1px dashed ${C.line}`, color: C.sub }}
+                  >
+                    <Plus size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {cap.photoDenied ? (
+            <p className="mt-2" style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.7 }}>
+              {cap.photoDenied === 'camera' ? t.cameraDenied : t.photoDenied}
+              {'　'}
+              <button
+                onClick={() => ReceiptScanner.openAppSettings().catch(() => {})}
+                style={{ color: C.blueDeep, textDecoration: 'underline' }}
+              >
+                {t.openSettings}
+              </button>
+            </p>
+          ) : (
+            <p className="mt-2" style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.7 }}>
+              {t.photoTypeHint}
+            </p>
+          )}
+
+          <div className="mt-3" style={{ backgroundColor: C.soft, padding: '14px' }}>
+            <p className="font-bold" style={{ fontSize: '13px', color: C.ink }}>
+              {t.photoTypeWhyTitle}
+            </p>
+            <p className="mt-1.5" style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.8 }}>
+              {t.photoTypeWhyDesc}
+            </p>
+          </div>
+        </>
+      )}
+
+      <div className="mt-3" style={{ backgroundColor: C.soft, padding: '14px' }}>
+        <p style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.8 }}>{t.photoStorageNote}</p>
+      </div>
+
+      <input
+        ref={cap.fileRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={cap.onPick}
+        className="hidden"
+      />
+
+      {typeSheetIndex !== null && (
+        <PhotoTypeSheet
+          t={t}
+          current={photos[typeSheetIndex]?.type === 'item' ? 'item' : 'receipt'}
+          onPick={(type) => {
+            cap.retypeImg(typeSheetIndex, type);
+            setTypeSheetIndex(null);
+          }}
+          onClose={() => setTypeSheetIndex(null)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -8814,7 +10058,7 @@ function PhotoLightbox({
         </button>
 
         <img
-          src={photos[index]}
+          src={photos[index]?.src}
           alt=""
           onPointerDown={onPointerDownImg}
           onPointerMove={onPointerMoveImg}
