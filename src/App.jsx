@@ -25,7 +25,21 @@ import {
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { Share } from '@capacitor/share';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 import ReceiptScanner from './receiptScanner.js';
+import {
+  photoKey,
+  dataUrlBytes,
+  formatBytes,
+  normalizePhotoList,
+  isTripEnded,
+  buildCsv,
+  buildZip,
+  estimateZipBytes,
+  collectAllPhotos,
+  photoStatsFrom,
+} from './exportData.js';
 
 /* ------------------------------------------------------------------
    返回鍵／左緣滑動／畫面上「‹」統一處理。
@@ -207,27 +221,51 @@ function deferOpen(fn) {
 ------------------------------------------------------------------ */
 
 const MAIN_KEY = 'jptax:v2';
-const photoKey = (id) => `jptax:photo:${id}`;
 const STAGES = ['purchased', 'registered', 'verified', 'refunded'];
 const MAX_PHOTOS = 4; // 一張收據最多存幾張照片
 
-// 照片現在帶型別：'receipt'（憑證，跑過 OCR、是金額來源）／'item'
-// （物品照片，純備忘，不跑辨識、不影響金額）。舊資料存的是單純的
-// dataURL 字串陣列，沒有型別這個概念——讀進來一律當作 'receipt'，
-// 這是安全的預設值：舊資料本來就是拿來當憑證用的，不會因為升級就
-// 突然被歸類成備忘照片而在畫面上消失或跑錯分組。
-function normalizePhotoEntry(p) {
-  if (typeof p === 'string') return { src: p, type: 'receipt' };
-  if (p && typeof p === 'object' && typeof p.src === 'string') {
-    return { src: p.src, type: p.type === 'item' ? 'item' : 'receipt' };
+function utf8ToBase64(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+function uint8ToBase64(bytes) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
   }
-  return null;
+  return btoa(binary);
 }
-function normalizePhotoList(list) {
-  return (Array.isArray(list) ? list : [])
-    .map(normalizePhotoEntry)
-    .filter(Boolean);
+
+// 匯出檔案存好之後要「開啟系統的分享選單」——原生殼裡先寫進 Cache
+// 目錄（用完即丟，不需要使用者自己管理），再交給 Share plugin 開
+// 分享選單；純網頁（開發時的 vite dev server）沒有這兩個 plugin 的
+// 完整實作，退回用 <a download> 直接觸發瀏覽器下載，一樣能拿到檔案，
+// 只是少了分享選單那一步。
+async function shareExportedFile(filename, mimeType, data) {
+  if (Capacitor.isNativePlatform()) {
+    const base64 = typeof data === 'string' ? utf8ToBase64(data) : uint8ToBase64(data);
+    const written = await Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: Directory.Cache,
+    });
+    await Share.share({ files: [written.uri], dialogTitle: filename });
+  } else {
+    const blob = new Blob([data], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 }
+
+// photoKey／normalizePhotoEntry／normalizePhotoList／dataUrlBytes／
+// formatBytes 都搬到 exportData.js 了——這幾個是純函式，跟匯出/刪除
+// 功能一起拆出去，方便單獨寫測試，這裡改成 import，行為不變。
 
 // refundMethod 這個欄位是後來才加的，舊收據沒存過這個值，要從當時的
 // status 反推。只有 status 剛好停在「已登記」（STAGES 索引 1）才是
@@ -237,7 +275,7 @@ function normalizePhotoList(list) {
 // 從「已購買」跳過去（那個動作完全不會讀退款方式，見 CheckView 的
 // onVerifyAll）——兩條路徑存下來的 status 長得一樣，分不出來，這時候
 // 老實回答「不確定」，不要在沒有真正依據的情況下替使用者捏造答案。
-function inferRefundMethod(initial) {
+export function inferRefundMethod(initial) {
   if (!initial) return 'unsure';
   if (initial.refundMethod) return initial.refundMethod;
   return STAGES.indexOf(initial.status) === 1 ? 'registered' : 'unsure';
@@ -685,10 +723,57 @@ const T = {
     rateAt: '更新於',
     manual: '手動輸入',
     language: '語言',
-    dataNote: '資料只存在這台裝置上，不會上傳。',
-    clearAll: '清空所有資料',
-    clearConfirm: '確定要清空？這個動作沒辦法復原。',
     source: '規則依據：観光庁 消費税免税店サイト',
+
+    // ---- 匯出與刪除 ----
+    dataManageKicker: '資料',
+    dataManageTitle: '匯出或刪除資料',
+    dataManageRowDesc: '匯出備份、清理照片，或整個重來。',
+    dataManageDesc: '資料都在這台手機裡，所以匯出和刪除都由你自己操作，不需要通知我們。',
+    dataManageReceiptCount: (n) => `${n} 張收據`,
+    dataManagePhotoUsage: (n, size) => `照片 ${n} 張 · ${size}`,
+    exportSectionLabel: '匯出',
+    exportThisTrip: '這趟行程',
+    exportAllTrips: '全部行程',
+    exportCta: '匯出',
+    deleteSectionLabel: '刪除',
+    deleteEndedTripsRow: (n) => `已結束的行程（${n} 張收據）`,
+    deletePhotosOnlyRow: (size) => `只刪照片（留下金額，省下 ${size}）`,
+    deleteAllDataRow: '全部資料',
+    deleteCta: '刪除',
+    noEndedTripsHint: '目前沒有已結束的行程',
+    noPhotosHint: '目前沒有照片可以刪',
+    csvHeaders: ['行程', '店名', '日期', '含稅金額', '稅率', '退款方式', '狀態', '備註'],
+    csvMixedRateLabel: '8%+10%',
+    csvUnnamedTrip: '未命名行程',
+    exportFormatCsvLabel: 'CSV',
+    exportFormatZipLabel: 'ZIP 含照片',
+    exportTip1: 'CSV 可以直接用 Excel、Numbers 或記帳軟體打開',
+    exportTip2: 'ZIP 版本另外包含每張收據和物品照片，檔案會大很多',
+    exportTip3: '待補的欄位留空，不會填 0——空白和零是兩件事',
+    exportBoundaryTitle: '匯出之後檔案就離開 App 了',
+    exportBoundaryDesc:
+      '存到哪裡、要不要傳給別人，由你決定。那份檔案不再受這裡的設定保護。',
+    exportCtaCsv: '匯出 CSV',
+    exportCtaZip: '匯出 ZIP',
+    exportShareHint: '會開啟系統的分享選單',
+    exporting: '準備檔案中…',
+    exportFailed: '匯出失敗，請再試一次。',
+    exportForTrip: (name) => `${name} · 匯出`,
+    exportForAll: '全部行程 · 匯出',
+    deleteConfirmReceiptsRow: (n) => `收據與稅額紀錄 ${n} 張`,
+    deleteConfirmPhotosRow: (n, size) => `照片 ${n} 張 · ${size}`,
+    deleteConfirmTripsRow: (n) => `行程與機場設定 ${n} 趟`,
+    deleteConfirmNeverExported: '還沒匯出過',
+    deleteConfirmNeverExportedDesc: '要留紀錄的話，先匯出再回來刪。',
+    deleteConfirmLastExported: (date) => `上次匯出 ${date}`,
+    deleteConfirmExportFirstCta: '先匯出',
+    deleteConfirmDeleteCta: '刪除',
+    deleteConfirmEndedTitle: '刪除已結束的行程？',
+    deleteConfirmAllTitle: '刪除全部資料？',
+    deletePhotosOnlyTitle: '只刪照片？',
+    deletePhotosOnlyDesc: (size) => `省下 ${size}，金額紀錄會留著。`,
+    deletePhotosOnlyCta: '刪除照片',
 
     // ---- 2b 體驗調整 ----
     todayActionTitle: '今天要辦的事',
@@ -1113,10 +1198,58 @@ const T = {
     rateAt: '更新',
     manual: '手動入力',
     language: '言語',
-    dataNote: 'データはこの端末にのみ保存されます。',
-    clearAll: 'すべてのデータを削除',
-    clearConfirm: '本当に削除しますか？元に戻せません。',
     source: '出典：観光庁 消費税免税店サイト',
+
+    // ---- 書き出しと削除 ----
+    dataManageKicker: 'データ',
+    dataManageTitle: '書き出しまたは削除',
+    dataManageRowDesc: 'バックアップの書き出し、写真の整理、まっさらな状態に戻す。',
+    dataManageDesc:
+      'データはこの端末だけに保存されているので、書き出しも削除もすべてあなたの操作です。当社に通知されることはありません。',
+    dataManageReceiptCount: (n) => `レシート ${n} 件`,
+    dataManagePhotoUsage: (n, size) => `写真 ${n}枚 · ${size}`,
+    exportSectionLabel: '書き出し',
+    exportThisTrip: 'この旅程',
+    exportAllTrips: 'すべての旅程',
+    exportCta: '書き出し',
+    deleteSectionLabel: '削除',
+    deleteEndedTripsRow: (n) => `終了した旅程（レシート ${n} 件）`,
+    deletePhotosOnlyRow: (size) => `写真のみ削除（金額は残り、${size} 節約）`,
+    deleteAllDataRow: 'すべてのデータ',
+    deleteCta: '削除',
+    noEndedTripsHint: '終了した旅程はまだありません',
+    noPhotosHint: '削除できる写真がありません',
+    csvHeaders: ['旅程', '店名', '購入日', '税込金額', '税率', '返金方法', '状態', 'メモ'],
+    csvMixedRateLabel: '8%+10%',
+    csvUnnamedTrip: '名前未設定の旅程',
+    exportFormatCsvLabel: 'CSV',
+    exportFormatZipLabel: 'ZIP（写真を含む）',
+    exportTip1: 'CSV は Excel・Numbers・会計ソフトで直接開けます',
+    exportTip2: 'ZIP 版はレシートと商品写真も含むため、ファイルがかなり大きくなります',
+    exportTip3: '未入力の項目は空欄のまま——0 を入力すると空欄とは違う意味になります',
+    exportBoundaryTitle: '書き出した後、ファイルはアプリの外に出ます',
+    exportBoundaryDesc:
+      'どこに保存するか、誰かに渡すかはあなた次第です。そのファイルはこのアプリの設定の保護を受けません。',
+    exportCtaCsv: 'CSV を書き出す',
+    exportCtaZip: 'ZIP を書き出す',
+    exportShareHint: 'システムの共有シートが開きます',
+    exporting: 'ファイルを準備中…',
+    exportFailed: '書き出しに失敗しました。もう一度お試しください。',
+    exportForTrip: (name) => `${name} · 書き出し`,
+    exportForAll: 'すべての旅程 · 書き出し',
+    deleteConfirmReceiptsRow: (n) => `レシートと税額の記録 ${n} 件`,
+    deleteConfirmPhotosRow: (n, size) => `写真 ${n}枚 · ${size}`,
+    deleteConfirmTripsRow: (n) => `旅程と空港設定 ${n} 件`,
+    deleteConfirmNeverExported: 'まだ書き出していません',
+    deleteConfirmNeverExportedDesc: '記録を残したいなら、先に書き出してから削除してください。',
+    deleteConfirmLastExported: (date) => `前回の書き出し：${date}`,
+    deleteConfirmExportFirstCta: '先に書き出す',
+    deleteConfirmDeleteCta: '削除',
+    deleteConfirmEndedTitle: '終了した旅程を削除しますか？',
+    deleteConfirmAllTitle: 'すべてのデータを削除しますか？',
+    deletePhotosOnlyTitle: '写真のみ削除しますか？',
+    deletePhotosOnlyDesc: (size) => `${size} 節約できます。金額の記録は残ります。`,
+    deletePhotosOnlyCta: '写真を削除',
 
     // ---- 2b 體驗調整 ----
     todayActionTitle: '今日やること',
@@ -1766,10 +1899,10 @@ const twd = (n) =>
 // 可能因為這 1-2 円的捨入差異被判定成「達標」或「未達標」，跟店家
 // 收銀機實際算出來的稅抜合計不一致。日本收銀機算稅抜金額慣例本來就是
 // 捨去小數，不是四捨五入，改成 floor 更貼近實際情況。
-const netOf = (incl, rate) =>
+export const netOf = (incl, rate) =>
   Math.floor((incl || 0) / (1 + (rate || 10) / 100));
 /* 混合稅率（8% 對象／10% 對象各一筆）：稅抜合計 = 兩段各自試算後相加，不是拿含稅總額套單一稅率 */
-const netOfItem = (it) =>
+export const netOfItem = (it) =>
   it.rate === 'mixed'
     ? netOf(it.incl8 || 0, 8) + netOf(it.incl10 || 0, 10)
     : netOf(it.incl, it.rate);
@@ -1785,7 +1918,7 @@ const todayStr = () => {
 };
 const groupKey = (it) => `${(it.shop || '').trim()}||${it.date}`;
 
-function daysLeft(dateStr) {
+export function daysLeft(dateStr) {
   if (!dateStr) return null;
   const d = new Date(dateStr + 'T00:00:00');
   // 只檢查 dateStr 是不是空字串不夠——資料匯入或損毀時，日期欄位可能
@@ -1807,7 +1940,7 @@ function daysLeft(dateStr) {
 // 用同一個「incl 是不是 0」訊號分開，一旦補上金額，這張自動不再是
 // 待補狀態。兩者都待補、只有其中一個待補，都算待補——這張收據還不能
 // 拿去算帳（分組、門檻判定、預估可退稅額），只要有一項沒填就是。
-function isPendingInfo(it) {
+export function isPendingInfo(it) {
   return !it.shop || !it.shop.trim() || !it.incl;
 }
 
@@ -1815,7 +1948,7 @@ function isPendingInfo(it) {
 // 種「死掉」，有自己的樣式跟文案）的收據——跟「已在境內消費」用同一套
 // 對待方式：不刪除、不隱藏，但不再算進「還沒處理」或「預估可退稅額」，
 // 因為那筆錢已經拿不回來了，算進去只會讓使用者以為還有機會。
-function isExpiredUnclaimed(it) {
+export function isExpiredUnclaimed(it) {
   // 「已查驗」（verified）跟這個 app 其他地方的既有慣例一樣，要當成
   // 錢已經到手——只排除 'refunded' 不夠，會讓已經查驗過、只是還沒
   // 手動標「已退款」的收據，一旦超過 90 天就被誤判成「來不及、拿不
@@ -1983,21 +2116,6 @@ function applyContrast(canvas, amount = 35) {
   return canvas;
 }
 
-// dataURL 的 base64 長度換算實際位元組數，用來顯示「1.2 MB → 240 KB」
-function dataUrlBytes(dataUrl) {
-  if (!dataUrl) return 0;
-  const i = dataUrl.indexOf(',');
-  const b64 = i >= 0 ? dataUrl.slice(i + 1) : dataUrl;
-  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
-  return Math.round((b64.length * 3) / 4) - pad;
-}
-
-function formatBytes(bytes) {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
-}
-
 // 從 OCR 辨識出的原始文字，抓「N%対象 金額円」這種日本收據固定格式。
 // 找不到任何 %対象 就整個回傳 null——OCR 是省打字，不是猜答案，讀不到不要生數字。
 // 把 OCR 回傳的每一行文字（各自帶座標）依垂直位置分組成「同一橫排」，
@@ -2008,7 +2126,7 @@ function formatBytes(bytes) {
 // 列」，跟標籤金額原本的左右對應關係整個脫節——只給文字本身救不回來，
 // 要靠座標重新配對。座標單位（像素或 0–1 正規化）兩邊平台不一樣，但
 // 這裡只在同一次呼叫回來的資料裡互相比較相對位置，不需要統一單位。
-function reconstructRowsFromLines(lines) {
+export function reconstructRowsFromLines(lines) {
   if (!lines || !lines.length) return '';
   const items = lines
     .filter((l) => l && typeof l.text === 'string' && l.text.trim())
@@ -2050,7 +2168,7 @@ function reconstructRowsFromLines(lines) {
     .join('\n');
 }
 
-function parseReceiptOCR(text) {
+export function parseReceiptOCR(text) {
   if (!text) return null;
   const norm = text.replace(/[，]/g, ',');
   const pctRe = /(8|10)\s*%\s*(?:対象|對象)[^\d]{0,12}([\d,]{2,9})\s*円/g;
@@ -2147,7 +2265,7 @@ function parseReceiptOCR(text) {
 // 文字裡的數字不會剛好緊貼著這些符號；退一步再看有沒有「合計/対象」
 // 這類收據關鍵字（防住標籤跟金額被 OCR 拆到不同行、抓不到緊貼符號的
 // 情況）。兩個條件都沒有，才夠格說「不像收據」。
-function looksLikeReceiptText(text) {
+export function looksLikeReceiptText(text) {
   if (!text) return false;
   const lines = text
     .split(/\r?\n/)
@@ -2171,7 +2289,7 @@ function looksLikeReceiptText(text) {
 // 用同一套判斷（重組成閱讀順序、看像不像收據），只是拿掉裁切/使用者
 // 互動那一段，純粹用來猜一個比「全部都當收據」合理的預設值——猜錯的話
 // 使用者長按縮圖還是能改，不是最終定案。
-async function guessPhotoType(b64Src) {
+export async function guessPhotoType(b64Src) {
   try {
     const res = await ReceiptScanner.recognizeText({ image: b64Src });
     const reconstructed = res?.lines?.length ? reconstructRowsFromLines(res.lines) : '';
@@ -2656,6 +2774,14 @@ export default function App() {
   const [endedSheetOpen, setEndedSheetOpen] = useState(false);
   const [deadline3dSheetOpen, setDeadline3dSheetOpen] = useState(false);
   const [refundCheckOpen, setRefundCheckOpen] = useState(false);
+  // 匯出／刪除資料：58 資料管理／59 匯出選項／60 刪除確認／「只刪
+  // 照片」四層各自獨立的開關，開哪一層就疊在哪一層上面，見下面的
+  // useBackClose 註冊。exportOptions／deleteConfirm 帶 scope
+  // （'trip' | 'endedTrips' | 'all'）決定這次動作的範圍。
+  const [dataManageOpen, setDataManageOpen] = useState(false);
+  const [exportOptions, setExportOptions] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deletePhotosOnlyOpen, setDeletePhotosOnlyOpen] = useState(false);
   const [quickAddOn, setQuickAddOn] = useState(false);
   // 快路存完之後的「收據存好了」提示——見 quickSaveDraft。
   // { showDeparturePrompt } | null，departurePrompt 只在「這趟第一張
@@ -2682,6 +2808,10 @@ export default function App() {
   useBackClose(endedSheetOpen, () => setEndedSheetOpen(false));
   useBackClose(deadline3dSheetOpen, () => setDeadline3dSheetOpen(false));
   useBackClose(refundCheckOpen, () => setRefundCheckOpen(false));
+  useBackClose(dataManageOpen, () => setDataManageOpen(false));
+  useBackClose(!!exportOptions, () => setExportOptions(null));
+  useBackClose(!!deleteConfirm, () => setDeleteConfirm(null));
+  useBackClose(deletePhotosOnlyOpen, () => setDeletePhotosOnlyOpen(false));
   useBackClose(quickAddOn, () => setQuickAddOn(false));
   useBackClose(menuOpen, () => setMenuOpen(false));
   useBackClose(!!openId, () => setOpenId(null));
@@ -2868,6 +2998,52 @@ export default function App() {
     setItems((prev) => prev.filter((i) => i.tripId !== id));
     setTrips(rest);
     if (activeId === id) setActiveId(rest.length ? rest[0].id : null);
+  }
+
+  // 刪除多趟行程（見資料管理「已結束的行程」）——跟 deleteTrip 同一套
+  // 邏輯，一次處理多趟，不要一趟一趟呼叫 deleteTrip（那樣每趟都會各
+  // 自觸發一次 setItems/setTrips，多趟時會閃過幾個中間狀態）。
+  function deleteTrips(ids) {
+    const idSet = new Set(ids);
+    const affectedItems = items.filter((i) => idSet.has(i.tripId));
+    affectedItems.forEach((i) => {
+      window.storage.delete(photoKey(i.id)).catch(() => {});
+    });
+    setPhotos((p) => {
+      const n = { ...p };
+      affectedItems.forEach((i) => delete n[i.id]);
+      return n;
+    });
+    setItems((prev) => prev.filter((i) => !idSet.has(i.tripId)));
+    const rest = trips.filter((x) => !idSet.has(x.id));
+    setTrips(rest);
+    if (idSet.has(activeId)) setActiveId(rest.length ? rest[0].id : null);
+  }
+
+  // 只刪照片——留下金額/店名/日期這些記帳用得到的資料，只清照片本身
+  // 跟對應的 storage key。hasPhoto 要一併改回 false：收據卡右下角的
+  // 相機圖示、詳情頁的附件區都是看這個欄位決定要不要顯示，不清的話
+  // 畫面會以為照片還在。
+  function deleteAllPhotos() {
+    items.forEach((it) => {
+      window.storage.delete(photoKey(it.id)).catch(() => {});
+    });
+    setPhotos({});
+    setItems((prev) => prev.map((it) => ({ ...it, hasPhoto: false })));
+  }
+
+  // 全部資料：連行程／機場設定一起清掉，回到「還沒有名字」的空狀態
+  // ——只清 items/photos 會留下一堆空殼行程，跟使用者「從零開始」的
+  // 期待不符。匯率/語言這些是 App 本身的偏好設定，不算「資料」，不
+  // 在這個動作的範圍內，繼續保留。
+  function deleteEverything() {
+    items.forEach((it) => {
+      window.storage.delete(photoKey(it.id)).catch(() => {});
+    });
+    setItems([]);
+    setPhotos({});
+    setTrips([]);
+    setActiveId(null);
   }
 
   function tripStatsFor(id) {
@@ -3141,7 +3317,8 @@ export default function App() {
       menuOpen ||
       endedSheetOpen ||
       deadline3dSheetOpen ||
-      refundCheckOpen
+      refundCheckOpen ||
+      dataManageOpen
     ) {
       setSavedToast(null);
     }
@@ -3155,6 +3332,7 @@ export default function App() {
     endedSheetOpen,
     deadline3dSheetOpen,
     refundCheckOpen,
+    dataManageOpen,
   ]);
 
   async function fetchRate() {
@@ -3442,10 +3620,7 @@ export default function App() {
               onFetchRate={fetchRate}
               rateBusy={rateBusy}
               rateErr={rateErr}
-              onClear={() => {
-                setItems([]);
-                setPhotos({});
-              }}
+              onOpenDataManage={() => setDataManageOpen(true)}
             />
           )}
         </main>
@@ -3676,6 +3851,79 @@ export default function App() {
               ),
             );
             setRefundCheckOpen(false);
+          }}
+        />
+      )}
+
+      {dataManageOpen && (
+        <DataManageSheet
+          t={t}
+          items={items}
+          trips={trips}
+          photos={photos}
+          activeTripId={activeId}
+          onClose={() => setDataManageOpen(false)}
+          onOpenExport={(scope) => setExportOptions(scope)}
+          onOpenDeleteEnded={() => setDeleteConfirm({ kind: 'endedTrips' })}
+          onOpenDeletePhotosOnly={() => setDeletePhotosOnlyOpen(true)}
+          onOpenDeleteAll={() => setDeleteConfirm({ kind: 'all' })}
+        />
+      )}
+
+      {exportOptions && (
+        <ExportOptionsSheet
+          t={t}
+          lang={lang}
+          scope={exportOptions}
+          items={items}
+          trips={trips}
+          photos={photos}
+          onClose={() => setExportOptions(null)}
+          onExported={() => {
+            setSettings((s) => ({ ...s, lastExportedAt: new Date().toISOString() }));
+            setExportOptions(null);
+          }}
+        />
+      )}
+
+      {deleteConfirm && (
+        <DeleteConfirmSheet
+          t={t}
+          scope={deleteConfirm}
+          items={items}
+          trips={trips}
+          photos={photos}
+          lastExportedAt={settings.lastExportedAt}
+          onClose={() => setDeleteConfirm(null)}
+          onExportFirst={() => {
+            // 先匯出：不管這次是刪「已結束的行程」還是「全部資料」，
+            // 一律匯出全部行程——匯出選項目前只有「這趟行程」／「全部
+            // 行程」兩種範圍，沒有「只匯已結束的行程」這個選項，這裡
+            // 寧可讓使用者多存一份用不到的資料，也不要少存到之後刪掉
+            // 就再也拿不回來的東西。不關掉刪除確認——使用者匯出完通常
+            // 還是想繼續刪，讓他能直接回來按刪除。
+            setExportOptions({ kind: 'all' });
+          }}
+          onConfirmDelete={(scope) => {
+            if (scope.kind === 'endedTrips') {
+              deleteTrips(trips.filter(isTripEnded).map((x) => x.id));
+            } else {
+              deleteEverything();
+            }
+            setDeleteConfirm(null);
+            setDataManageOpen(false);
+          }}
+        />
+      )}
+
+      {deletePhotosOnlyOpen && (
+        <DeletePhotosOnlySheet
+          t={t}
+          photoBytes={photoStatsFrom(collectAllPhotos(items, photos)).bytes}
+          onClose={() => setDeletePhotosOnlyOpen(false)}
+          onConfirm={() => {
+            deleteAllPhotos();
+            setDeletePhotosOnlyOpen(false);
           }}
         />
       )}
@@ -6166,11 +6414,8 @@ function SettingsView({
   onFetchRate,
   rateBusy,
   rateErr,
-  onClear,
+  onOpenDataManage,
 }) {
-  const [confirm, setConfirm] = useState(false);
-  // 清空所有資料的確認也掛進返回鍵堆疊，理由同上。
-  useBackClose(confirm, () => setConfirm(false));
   const rowStyle = (first) => ({
     display: 'block',
     width: '100%',
@@ -6283,66 +6528,18 @@ function SettingsView({
         </div>
       </div>
 
-      <div style={rowStyle(false)}>
-        <p style={{ color: C.sub, fontSize: '12px', lineHeight: 1.9 }}>
-          {t.dataNote}
+      <button onClick={onOpenDataManage} style={rowStyle(false)}>
+        <span className="block" style={labelStyle}>
+          {t.dataManageKicker}
+        </span>
+        <span className="mt-2 flex items-center justify-between gap-2">
+          <span style={{ fontSize: '17px' }}>{t.dataManageTitle}</span>
+          <ChevronRight size={15} style={{ color: C.sub, flexShrink: 0 }} />
+        </span>
+        <p className="mt-1.5" style={{ color: C.sub, fontSize: '12px', lineHeight: 1.7 }}>
+          {t.dataManageRowDesc}
         </p>
-        {!confirm ? (
-          <button
-            onClick={() => setConfirm(true)}
-            className="mt-3.5 inline-block text-sm"
-            style={{
-              color: C.clayInk,
-              borderBottom: `1px solid ${C.clay}`,
-              paddingBottom: '3px',
-            }}
-          >
-            {t.clearAll}
-          </button>
-        ) : (
-          <div
-            className="mt-3"
-            style={{
-              backgroundColor: C.soft,
-              borderLeft: `3px solid ${C.clay}`,
-              padding: '14px',
-            }}
-          >
-            <p className="text-sm" style={{ color: C.clayInk }}>
-              {t.clearConfirm}
-            </p>
-            <div className="mt-3 flex gap-2">
-              {/* 灰赭實心填色按鈕整個 app 只留給照片刪除那個真正的破壞性
-                  確認畫面用；清除所有資料維持跟上面連結一致的線框樣式 */}
-              <button
-                onClick={() => {
-                  onClear();
-                  setConfirm(false);
-                }}
-                className="px-3 py-1.5 text-sm font-medium"
-                style={{
-                  border: `1px solid ${C.clay}`,
-                  color: C.clayInk,
-                  borderRadius: 0,
-                }}
-              >
-                {t.clearAll}
-              </button>
-              <button
-                onClick={() => setConfirm(false)}
-                className="px-3 py-1.5 text-sm"
-                style={{
-                  border: `1px solid ${C.line}`,
-                  color: C.ink,
-                  borderRadius: 0,
-                }}
-              >
-                {t.cancel}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      </button>
 
       <p
         className="mt-10 pb-2 text-center"
@@ -6409,6 +6606,515 @@ function BottomSheet({ onClose, children }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// 置中對話框——整個 App 目前只有刪除確認（畫面 60）用這個版面，跟
+// BottomSheet（貼底）刻意做成不同形狀：這是唯一一個要使用者在動手
+// 之前先「停下來讀完」的畫面，貼底 sheet 那種「隨手往下滑就關掉」
+// 的手感不適合放在這裡。
+function CenterDialog({ onClose, children }) {
+  return (
+    <div
+      className="fixed inset-0 z-40"
+      style={{ fontFamily: FONT, letterSpacing: '0.01em', color: C.ink }}
+    >
+      <div className="absolute inset-0 kaeru-app">
+        <div
+          className="absolute inset-0"
+          style={{ backgroundColor: 'rgba(73,70,64,0.32)' }}
+          onClick={onClose}
+        />
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute overflow-y-auto"
+          style={{
+            left: '20px',
+            right: '20px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            maxHeight: '80vh',
+            backgroundColor: C.page,
+            border: `1px solid ${C.ink}`,
+            borderRadius: 0,
+            padding: '24px 22px',
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 畫面 58：資料管理——匯出跟刪除的入口，兩件事故意放同一頁、份量
+//相等（見 CLAUDE_CODE_DELTA_匯出與刪除.md）：純本機儲存讓匯出成為
+// 唯一的備份手段，匯出不是附屬功能。
+function DataManageSheet({
+  t,
+  items,
+  trips,
+  photos,
+  activeTripId,
+  onClose,
+  onOpenExport,
+  onOpenDeleteEnded,
+  onOpenDeletePhotosOnly,
+  onOpenDeleteAll,
+}) {
+  const photoStats = useMemo(
+    () => photoStatsFrom(collectAllPhotos(items, photos)),
+    [items, photos],
+  );
+  const endedTrips = useMemo(() => trips.filter(isTripEnded), [trips]);
+  const endedTripIds = useMemo(
+    () => new Set(endedTrips.map((x) => x.id)),
+    [endedTrips],
+  );
+  const endedItemsCount = useMemo(
+    () => items.filter((i) => endedTripIds.has(i.tripId)).length,
+    [items, endedTripIds],
+  );
+
+  function Row({ label, onClick, disabled, ctaLabel, ctaColor }) {
+    return (
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        className="flex w-full items-center justify-between gap-3 text-left disabled:opacity-40"
+        style={{ padding: '15px 0', borderBottom: `1px solid ${C.line}` }}
+      >
+        <span style={{ fontSize: '14.5px', color: C.ink }}>{label}</span>
+        <span
+          className="flex shrink-0 items-center gap-0.5 font-bold"
+          style={{ fontSize: '13px', color: ctaColor }}
+        >
+          {ctaLabel}
+          <ChevronRight size={14} />
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <FullScreenSheet>
+      <div
+        className="sticky top-0 z-10 flex items-center justify-between kaeru-pad"
+        style={{
+          backgroundColor: C.page,
+          borderBottom: `1px solid ${C.ink}`,
+          paddingTop: 'max(16px, env(safe-area-inset-top))',
+          paddingBottom: '16px',
+        }}
+      >
+        <button onClick={onClose} style={{ fontSize: '13px', color: C.sub }}>
+          {t.cancel}
+        </button>
+        <h2 className="font-bold" style={{ fontSize: '15px' }}>
+          {t.dataManageTitle}
+        </h2>
+        <span
+          aria-hidden="true"
+          style={{ fontSize: '13px', color: 'transparent', userSelect: 'none' }}
+        >
+          {t.cancel}
+        </span>
+      </div>
+
+      <div className="kaeru-pad py-6">
+        <p style={{ fontSize: '13px', color: C.sub, lineHeight: 1.85 }}>
+          {t.dataManageDesc}
+        </p>
+
+        <div
+          className="mt-5 flex items-baseline justify-between gap-3"
+          style={{ borderTop: `1px solid ${C.ink}`, paddingTop: '16px' }}
+        >
+          <p
+            className="font-semibold tabular-nums"
+            style={{ fontSize: '28px', color: C.ink }}
+          >
+            {t.dataManageReceiptCount(items.length)}
+          </p>
+          <p className="tabular-nums" style={{ fontSize: '12.5px', color: C.sub }}>
+            {t.dataManagePhotoUsage(photoStats.count, formatBytes(photoStats.bytes))}
+          </p>
+        </div>
+
+        <div className="mt-6">
+          <SectionLabel>{t.exportSectionLabel}</SectionLabel>
+          <div className="mt-1">
+            {!!activeTripId && (
+              <Row
+                label={t.exportThisTrip}
+                onClick={() => onOpenExport({ kind: 'trip', tripId: activeTripId })}
+                ctaLabel={t.exportCta}
+                ctaColor={C.blueDeep}
+              />
+            )}
+            <Row
+              label={t.exportAllTrips}
+              onClick={() => onOpenExport({ kind: 'all' })}
+              ctaLabel={t.exportCta}
+              ctaColor={C.blueDeep}
+            />
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <SectionLabel>{t.deleteSectionLabel}</SectionLabel>
+          <div className="mt-1">
+            <Row
+              label={t.deleteEndedTripsRow(endedItemsCount)}
+              onClick={onOpenDeleteEnded}
+              disabled={endedTrips.length === 0}
+              ctaLabel={t.deleteCta}
+              ctaColor={C.clayInk}
+            />
+            <Row
+              label={t.deletePhotosOnlyRow(formatBytes(photoStats.bytes))}
+              onClick={onOpenDeletePhotosOnly}
+              disabled={photoStats.count === 0}
+              ctaLabel={t.deleteCta}
+              ctaColor={C.clayInk}
+            />
+            <Row
+              label={t.deleteAllDataRow}
+              onClick={onOpenDeleteAll}
+              disabled={items.length === 0 && trips.length === 0}
+              ctaLabel={t.deleteCta}
+              ctaColor={C.clayInk}
+            />
+          </div>
+        </div>
+      </div>
+    </FullScreenSheet>
+  );
+}
+
+// 畫面 59：匯出選項。CTA 文字跟著選中的格式變，數字都是這次真的會
+// 匯出的內容算出來的，不是隨便寫的估計值。
+function ExportOptionsSheet({
+  t,
+  lang,
+  scope,
+  items,
+  trips,
+  photos,
+  onClose,
+  onExported,
+}) {
+  const [format, setFormat] = useState('csv');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(false);
+
+  const scopeItems = useMemo(() => {
+    if (scope.kind === 'trip') return items.filter((it) => it.tripId === scope.tripId);
+    return items;
+  }, [items, scope]);
+
+  const tripNameFor = (tripId) => {
+    const trip = trips.find((x) => x.id === tripId);
+    return trip && trip.name ? trip.name : t.csvUnnamedTrip;
+  };
+  const stageLabelFor = (status) => t.stageShort[status] || '';
+  const refundLabelFor = (method) =>
+    method === 'registered'
+      ? t.refundOptRegistered
+      : method === 'no'
+        ? t.refundOptNo
+        : t.refundOptUnsure;
+
+  const csv = useMemo(
+    () =>
+      buildCsv(scopeItems, {
+        headers: t.csvHeaders,
+        tripNameFor,
+        stageLabelFor,
+        refundLabelFor,
+        mixedRateLabel: t.csvMixedRateLabel,
+      }),
+    [scopeItems, lang],
+  );
+  const scopePhotos = useMemo(
+    () => collectAllPhotos(scopeItems, photos),
+    [scopeItems, photos],
+  );
+  const zipEstimateBytes = useMemo(
+    () => estimateZipBytes(csv.bytes, scopePhotos),
+    [csv.bytes, scopePhotos],
+  );
+
+  const scopeTitle =
+    scope.kind === 'trip' ? t.exportForTrip(tripNameFor(scope.tripId)) : t.exportForAll;
+
+  async function handleExport() {
+    if (busy) return;
+    setBusy(true);
+    setErr(false);
+    try {
+      const stamp = todayStr().replace(/-/g, '');
+      if (format === 'csv') {
+        await shareExportedFile(`kaeru-${stamp}.csv`, 'text/csv', csv.text);
+      } else {
+        const zip = buildZip(csv.text, scopePhotos);
+        await shareExportedFile(`kaeru-${stamp}.zip`, 'application/zip', zip);
+      }
+      onExported();
+    } catch (e) {
+      setErr(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <FullScreenSheet>
+      <div
+        className="sticky top-0 z-10 flex items-center justify-between kaeru-pad"
+        style={{
+          backgroundColor: C.page,
+          borderBottom: `1px solid ${C.ink}`,
+          paddingTop: 'max(16px, env(safe-area-inset-top))',
+          paddingBottom: '16px',
+        }}
+      >
+        <button onClick={onClose} style={{ fontSize: '13px', color: C.sub }}>
+          {t.cancel}
+        </button>
+        <h2 className="font-bold" style={{ fontSize: '15px' }}>
+          {scopeTitle}
+        </h2>
+        <span
+          aria-hidden="true"
+          style={{ fontSize: '13px', color: 'transparent', userSelect: 'none' }}
+        >
+          {t.cancel}
+        </span>
+      </div>
+
+      <div className="kaeru-pad py-6" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div className="flex gap-2">
+          {[
+            ['csv', t.exportFormatCsvLabel, formatBytes(csv.bytes)],
+            ['zip', t.exportFormatZipLabel, formatBytes(zipEstimateBytes)],
+          ].map(([v, label, size]) => (
+            <button
+              key={v}
+              onClick={() => setFormat(v)}
+              className="flex-1 text-left"
+              style={{
+                padding: '13px 14px',
+                border: `1px solid ${format === v ? C.ink : C.line}`,
+                backgroundColor: format === v ? C.soft : C.page,
+              }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold" style={{ fontSize: '13.5px', color: C.ink }}>
+                  {label}
+                </span>
+                {/* 圓形 radio——整個 App 唯一用圓角的地方，其他一律四方角 */}
+                <span
+                  className="flex shrink-0 items-center justify-center"
+                  style={{
+                    width: '17px',
+                    height: '17px',
+                    borderRadius: '50%',
+                    border: `1px solid ${format === v ? C.ink : C.line}`,
+                  }}
+                >
+                  {format === v && (
+                    <span
+                      style={{
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        backgroundColor: C.blue,
+                      }}
+                    />
+                  )}
+                </span>
+              </div>
+              <p className="mt-1 tabular-nums" style={{ fontSize: '11px', color: C.sub }}>
+                {size}
+              </p>
+            </button>
+          ))}
+        </div>
+
+        <ol style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {[t.exportTip1, t.exportTip2, t.exportTip3].map((tip, i) => (
+            <li key={i} className="flex gap-3">
+              <span
+                className="shrink-0 font-bold tabular-nums"
+                style={{ color: C.blue, opacity: 0.7, fontSize: '11px' }}
+              >
+                {String(i + 1).padStart(2, '0')}
+              </span>
+              <p style={{ fontSize: '12.5px', lineHeight: 1.8, color: C.ink }}>{tip}</p>
+            </li>
+          ))}
+        </ol>
+
+        <div style={{ backgroundColor: C.soft, padding: '14px' }}>
+          <p className="font-bold" style={{ fontSize: '13px', color: C.ink }}>
+            {t.exportBoundaryTitle}
+          </p>
+          <p className="mt-1.5" style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.8 }}>
+            {t.exportBoundaryDesc}
+          </p>
+        </div>
+
+        {err && (
+          <p style={{ fontSize: '12px', color: C.clayInk }}>{t.exportFailed}</p>
+        )}
+
+        <div>
+          <button
+            onClick={handleExport}
+            disabled={busy}
+            className="w-full py-3.5 text-sm font-semibold disabled:opacity-60"
+            style={{ backgroundColor: C.blue, color: '#FFFFFF' }}
+          >
+            {busy ? t.exporting : format === 'csv' ? t.exportCtaCsv : t.exportCtaZip}
+          </button>
+          <p className="mt-2 text-center" style={{ fontSize: '11px', color: C.sub }}>
+            {t.exportShareHint}
+          </p>
+        </div>
+      </div>
+    </FullScreenSheet>
+  );
+}
+
+// 畫面 60：刪除確認。置中對話框，不做二次輸入確認——清單已經把後果
+// 列完，再加一層是懲罰不是保護。「先匯出」故意比「刪除」顯眼：那是
+// 唯一能救回資料的動作，使用者按到這一步通常沒想過要備份。
+function DeleteConfirmSheet({
+  t,
+  scope,
+  items,
+  trips,
+  photos,
+  lastExportedAt,
+  onClose,
+  onExportFirst,
+  onConfirmDelete,
+}) {
+  const scopeTrips = useMemo(
+    () => (scope.kind === 'endedTrips' ? trips.filter(isTripEnded) : trips),
+    [scope, trips],
+  );
+  const scopeTripIds = useMemo(() => new Set(scopeTrips.map((x) => x.id)), [scopeTrips]);
+  const scopeItems = useMemo(
+    () =>
+      scope.kind === 'endedTrips'
+        ? items.filter((i) => scopeTripIds.has(i.tripId))
+        : items,
+    [items, scope, scopeTripIds],
+  );
+  const photoStats = useMemo(
+    () => photoStatsFrom(collectAllPhotos(scopeItems, photos)),
+    [scopeItems, photos],
+  );
+
+  const title = scope.kind === 'endedTrips' ? t.deleteConfirmEndedTitle : t.deleteConfirmAllTitle;
+  const fmtDate = (iso) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  return (
+    <CenterDialog onClose={onClose}>
+      <p className="font-bold" style={{ fontSize: '17px', color: C.ink, lineHeight: 1.4 }}>
+        {title}
+      </p>
+
+      <div
+        className="mt-4 flex flex-col"
+        style={{ gap: '10px', borderTop: `1px dashed ${C.line}`, paddingTop: '14px' }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span style={{ fontSize: '13px', color: C.sub }}>{t.deleteConfirmReceiptsRow(scopeItems.length)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span style={{ fontSize: '13px', color: C.sub }}>
+            {t.deleteConfirmPhotosRow(photoStats.count, formatBytes(photoStats.bytes))}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span style={{ fontSize: '13px', color: C.sub }}>{t.deleteConfirmTripsRow(scopeTrips.length)}</span>
+        </div>
+      </div>
+
+      <div className="mt-4" style={{ backgroundColor: C.soft, padding: '13px' }}>
+        <p className="font-semibold" style={{ fontSize: '12.5px', color: C.ink }}>
+          {lastExportedAt ? t.deleteConfirmLastExported(fmtDate(lastExportedAt)) : t.deleteConfirmNeverExported}
+        </p>
+        {!lastExportedAt && (
+          <p className="mt-1" style={{ fontSize: '11.5px', color: C.sub, lineHeight: 1.7 }}>
+            {t.deleteConfirmNeverExportedDesc}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-5" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <button
+          onClick={onExportFirst}
+          className="w-full py-3 text-sm font-bold"
+          style={{ border: `1px solid ${C.ink}`, color: C.ink }}
+        >
+          {t.deleteConfirmExportFirstCta}
+        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 text-sm font-semibold"
+            style={{ border: `1px solid ${C.line}`, color: C.ink }}
+          >
+            {t.cancel}
+          </button>
+          <button
+            onClick={() => onConfirmDelete(scope)}
+            className="flex-1 py-3 text-sm font-bold"
+            style={{ backgroundColor: C.clay, color: '#FFFFFF' }}
+          >
+            {t.deleteConfirmDeleteCta}
+          </button>
+        </div>
+      </div>
+    </CenterDialog>
+  );
+}
+
+// 只刪照片——一般 sheet 就好，這個動作留得住金額紀錄，破壞性比另外
+// 兩種刪除小得多，不需要置中對話框那種「先停下來讀完」的重量級處理。
+function DeletePhotosOnlySheet({ t, photoBytes, onClose, onConfirm }) {
+  return (
+    <BottomSheet onClose={onClose}>
+      <p className="font-bold" style={{ fontSize: '15px', color: C.ink }}>
+        {t.deletePhotosOnlyTitle}
+      </p>
+      <p className="mt-2" style={{ fontSize: '13px', color: C.sub, lineHeight: 1.8 }}>
+        {t.deletePhotosOnlyDesc(formatBytes(photoBytes))}
+      </p>
+      <div className="mt-4 flex gap-2">
+        <button
+          onClick={onClose}
+          className="flex-1 py-3 text-sm font-semibold"
+          style={{ border: `1px solid ${C.line}`, color: C.ink }}
+        >
+          {t.cancel}
+        </button>
+        <button
+          onClick={onConfirm}
+          className="flex-1 py-3 text-sm font-bold"
+          style={{ backgroundColor: C.clay, color: '#FFFFFF' }}
+        >
+          {t.deletePhotosOnlyCta}
+        </button>
+      </div>
+    </BottomSheet>
   );
 }
 

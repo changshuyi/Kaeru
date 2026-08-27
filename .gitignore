@@ -24,3 +24,7 @@ ios/App/**/xcuserdata
 .capacitor-assets-cache
 builds/
 .claude/
+
+# 測試產出（Playwright 執行結果/報表，每次跑都會重新生成）
+test-results/
+playwright-report/
