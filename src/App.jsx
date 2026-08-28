@@ -801,7 +801,7 @@ const T = {
     aboutEstimateDesc: '規則以日本國稅廳和各免稅店的公告為準。各店手續費不同，實際入帳可能少一點。',
     aboutPrivacyLink: '隱私說明',
     aboutFeedbackLabel: '回報問題或建議',
-    aboutFeedbackEmail: 'sueeloveblack@gmail.com',
+    aboutFeedbackEmail: 'shu.developer.tw@gmail.com',
 
     // ---- 隱私說明 ----
     privacyRowLabel: '隱私說明',
@@ -1335,7 +1335,7 @@ const T = {
     aboutEstimateDesc: '規則は日本国税庁と各免税店の案内に基づきます。店舗ごとの手数料により、実際の返金額は少なくなることがあります。',
     aboutPrivacyLink: 'プライバシーについて',
     aboutFeedbackLabel: '不具合の報告・ご意見',
-    aboutFeedbackEmail: 'sueeloveblack@gmail.com',
+    aboutFeedbackEmail: 'shu.developer.tw@gmail.com',
 
     // ---- プライバシーについて ----
     privacyRowLabel: 'プライバシーについて',
