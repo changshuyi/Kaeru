@@ -1,6 +1,17 @@
 apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 
+// 正式簽署憑證設定放在 keystore.properties（不進版控，見 .gitignore），
+// 這個檔案本機沒有的話 release 建置會直接失敗且訊息清楚——比默默退回
+// debug 簽署好，那樣送出去的 AAB 會是不能上架的簽署方式，卻不會有
+// 任何錯誤訊息提醒。
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+def keystoreProperties = new Properties()
+def hasKeystoreProperties = keystorePropertiesFile.exists()
+if (hasKeystoreProperties) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace = "com.gogolook.kaeru"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -17,10 +28,26 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (hasKeystoreProperties) {
+                storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // 沒有 keystore.properties（例如 CI 或別人的機器上）就不套用簽署
+            // 設定，讓 release 建置退回沒有正式簽署——這樣至少能繼續建置測試
+            // 邏輯，只是產出的 AAB/APK 不能拿去上架，不會讓整條 build 直接爆炸。
+            if (hasKeystoreProperties) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

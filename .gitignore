@@ -28,3 +28,9 @@ builds/
 # 測試產出（Playwright 執行結果/報表，每次跑都會重新生成）
 test-results/
 playwright-report/
+
+# Android 正式簽署憑證跟密碼——絕對不能進版控。keystore 檔案本身要
+# 另外備份到這台電腦以外的地方，遺失了無法重新產生一個「一樣」的。
+android/keystore.properties
+android/*.keystore
+android/*.jks
