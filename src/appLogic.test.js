@@ -1,15 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { netOf, netOfItem } from './lib/money.js';
+import { daysLeft, isPendingInfo, isExpiredUnclaimed } from './lib/date.js';
+import { inferRefundMethod } from './lib/trip.js';
 import {
-  netOf,
-  netOfItem,
-  daysLeft,
-  isPendingInfo,
-  isExpiredUnclaimed,
   parseReceiptOCR,
   looksLikeReceiptText,
   reconstructRowsFromLines,
-  inferRefundMethod,
-} from './App.jsx';
+} from './lib/ocr.js';
 
 describe('netOf / netOfItem（稅抜金額計算）', () => {
   it('用捨去、不是四捨五入——貼近店家收銀機的算法', () => {

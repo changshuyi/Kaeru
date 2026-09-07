@@ -13,12 +13,27 @@ npm run dev
 ## 檔案
 
 ```
-index.html          字型載入、viewport
-src/main.jsx        進入點
-src/App.jsx         整個 App，單檔
-src/storage.js      window.storage 的本機實作，底層是 localStorage
-src/index.css       Tailwind 三行 + body 底色
+index.html                  字型載入、viewport
+src/main.jsx                進入點
+src/App.jsx                 App 本體：狀態、資料持久化、畫面路由
+src/storage.js              window.storage 的本機實作，底層是 localStorage
+src/receiptScanner.js       自建 Capacitor plugin（文件掃描／OCR／開系統設定）的註冊
+src/exportData.js           CSV/ZIP 匯出、照片統計等純函式
+src/index.css               Tailwind 三行 + body 底色
+
+src/constants/               色票、字體、機場資料、App 層級常數
+src/i18n/                    雙語字典（translations.js）、FAQ／情境模擬內容（content.js）
+src/lib/                     純函式工具：金額、日期、圖片處理、OCR 解析…
+src/hooks/                   共用 hook：返回鍵堆疊、倒數計時、相機/相簿流程…
+src/components/ui/           可重複使用的畫面元件（Badge、Card、DateField…）
+src/components/views/        五個主分頁（總覽／收據／查驗／FAQ／設定）
+src/components/sheets/       彈窗、面板（行程、新增收據、匯出、刪除確認…）
 ```
+
+`App.jsx` 原本是單一 11,000+ 行的檔案，上架前拆成上面這個結構——拆分是
+純粹的搬動程式碼＋補 import/export，沒有改任何邏輯或文案。`App.jsx`
+現在只保留最外層的狀態、資料持久化 effect 跟畫面路由，實際的元件都
+從其他資料夾 import 進來組裝。
 
 App.jsx 用 `window.storage` 讀寫資料，介面是 get / set / delete / list，全部回 Promise。
 本機由 `storage.js` 補上，之後要換 IndexedDB 或後端只要改那一個檔案。
@@ -27,7 +42,7 @@ App.jsx 用 `window.storage` 讀寫資料，介面是 get / set / delete / list�
 
 ## 設計
 
-底色白，其餘用莫蘭迪色。色票集中在 App.jsx 最上面的 `C`，改那一組就會全站生效。
+底色白，其餘用莫蘭迪色。色票集中在 `src/constants/theme.js` 的 `C`，改那一組就會全站生效。
 
 | 用途 | 色碼 |
 | --- | --- |
