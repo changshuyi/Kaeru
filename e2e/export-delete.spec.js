@@ -5,15 +5,28 @@ import { seedTrip, TINY_PNG } from './helpers.js';
 // Playwright 手動跑過一次確認可行，這裡把它們轉成永久的 spec，之後
 // 改動這幾個畫面時能直接重跑，不用每次重新手寫一次性腳本。
 
+// r1/r2 原本用寫死的日期（2026-06-13/14），曾經在這幾天的真實時間推進
+// 之後撞進「90 天期限只剩 3 天」的門檻，讓總覽自動跳出期限警示 sheet
+// 把「功能」選單擋住，所有靠 openDataManage() 的測試整批卡死逾時——
+// 這個 App 本身就是在測「期限」，寫死的日期本來就注定會撞到這個邊界，
+// 只是時間早晚問題。改成相對「今天」往回推固定天數，不管什麼時候跑
+// 這個 spec，daysLeft 都穩穩停在安全範圍（遠大於 14 天），不會再無預警
+// 自己過期。
+function daysAgo(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
 function baseItems() {
   return [
     {
-      id: 'r1', shop: 'ヨドバシ梅田', date: '2026-06-13', incl: 21800, rate: 10,
+      id: 'r1', shop: 'ヨドバシ梅田', date: daysAgo(10), incl: 21800, rate: 10,
       incl8: null, incl10: null, taxOverride: null, refundMethod: 'registered',
       unpacked: false, consumed: false, note: '', status: 'registered', hasPhoto: true, tripId: 't1',
     },
     {
-      id: 'r2', shop: '', date: '2026-06-14', incl: 0, rate: null,
+      id: 'r2', shop: '', date: daysAgo(9), incl: 0, rate: null,
       incl8: null, incl10: null, taxOverride: null, refundMethod: 'unsure',
       unpacked: false, consumed: false, note: '', status: 'purchased', hasPhoto: false, tripId: 't1',
     },
@@ -71,7 +84,7 @@ test('CSV 匯出：待補金額留空不是 0、混合稅率標成 8%+10%、逗�
 
   expect(rows).toHaveLength(4); // header + 3 筆
   // r2（店名/金額都待補）那一行，含稅金額跟稅率兩格都要是空的
-  const pendingRow = rows.find((r) => r.includes('2026-06-14'));
+  const pendingRow = rows.find((r) => r.includes(daysAgo(9)));
   const cols = pendingRow.split(',');
   expect(cols[3]).toBe('');
   expect(cols[4]).toBe('');
