@@ -1,4 +1,4 @@
-package com.gogolook.kaeru
+package com.github.changshuyigogo.kaeru
 
 import android.Manifest
 import android.app.Activity

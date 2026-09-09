@@ -1,4 +1,4 @@
-package com.gogolook.kaeru;
+package com.github.changshuyigogo.kaeru;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;

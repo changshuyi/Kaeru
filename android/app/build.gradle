@@ -13,10 +13,10 @@ if (hasKeystoreProperties) {
 }
 
 android {
-    namespace = "com.gogolook.kaeru"
+    namespace = "com.github.changshuyigogo.kaeru"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.gogolook.kaeru"
+        applicationId "com.github.changshuyigogo.kaeru"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
