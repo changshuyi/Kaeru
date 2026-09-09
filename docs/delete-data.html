@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kaeru 刪除資料說明 / データ削除について</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #F2F0ED;
+    --page: #FFFFFF;
+    --soft: #F4F2EF;
+    --ink: #494640;
+    --sub: #8B857D;
+    --line: #E1DCD5;
+    --blue: #77899A;
+    --blueDeep: #5C6D7C;
+    --sage: #93A392;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Noto Sans TC", "Noto Sans JP", "Hiragino Sans", "Yu Gothic",
+      "Microsoft JhengHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+    letter-spacing: 0.01em;
+    line-height: 1.85;
+  }
+  main {
+    max-width: 640px;
+    margin: 0 auto;
+    background: var(--page);
+    min-height: 100vh;
+    padding: 32px 22px 64px;
+  }
+  header.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 28px;
+  }
+  header.brand h1 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--blueDeep);
+    margin: 0;
+  }
+  section { margin-top: 40px; }
+  section:first-of-type { margin-top: 0; }
+  h2 { font-size: 21px; margin: 0 0 4px; }
+  p.updated { font-size: 11px; color: var(--sub); margin: 0 0 18px; }
+  p.intro { font-size: 14px; margin: 0 0 20px; }
+  ol.steps {
+    margin: 0 0 24px;
+    padding: 0 0 0 1.4em;
+    font-size: 14px;
+  }
+  ol.steps li { margin-bottom: 10px; }
+  .box {
+    background: var(--soft);
+    padding: 14px;
+    margin: 24px 0;
+    font-size: 13px;
+  }
+  .box strong { display: block; margin-bottom: 4px; }
+  .box small { display: block; color: var(--sub); font-size: 11.5px; }
+  .legal { font-size: 11.5px; color: var(--sub); }
+  a { color: var(--blueDeep); }
+  hr.divider { border: none; border-top: 1px solid var(--ink); margin: 56px 0 40px; }
+</style>
+</head>
+<body>
+<main>
+  <header class="brand">
+    <svg width="26" height="26" viewBox="0 0 24 24" role="img" aria-label="Kaeru">
+      <path d="M2.4 13.6C2.4 9.2 6.7 6.1 12 6.1s9.6 3.1 9.6 7.5c0 3.3-4.3 5.6-9.6 5.6s-9.6-2.3-9.6-5.6z" fill="#93A392"/>
+      <circle cx="7.2" cy="6.3" r="3.5" fill="#93A392"/>
+      <circle cx="16.8" cy="6.3" r="3.5" fill="#93A392"/>
+      <circle cx="7.2" cy="5.9" r="1.35" fill="#FFFFFF"/>
+      <circle cx="16.8" cy="5.9" r="1.35" fill="#FFFFFF"/>
+      <circle cx="7.4" cy="5.9" r="0.62" fill="#93A392"/>
+      <circle cx="16.6" cy="5.9" r="0.62" fill="#93A392"/>
+    </svg>
+    <h1>KAERU</h1>
+  </header>
+
+  <section id="zh" lang="zh-Hant">
+    <h2>刪除資料說明</h2>
+    <p class="updated">Kaeru（開發者：shu.developer.tw@gmail.com）</p>
+    <p class="intro">
+      Kaeru 沒有帳號系統、沒有伺服器，你的收據、照片、行程設定全部只存在你自己的手機裡。
+      刪除資料完全不需要聯絡我們，你自己在手機上就能立刻完成。
+    </p>
+
+    <p class="intro" style="font-weight:700;">怎麼刪除</p>
+    <ol class="steps">
+      <li>打開 Kaeru App</li>
+      <li>點右上角「☰」（功能選單），選「設定」</li>
+      <li>點「資料管理」</li>
+      <li>依你要刪除的範圍選擇：
+        <ul>
+          <li>「只刪照片」——留下金額紀錄，只清空照片</li>
+          <li>「刪除已結束的行程」——只刪已經過期的行程跟收據</li>
+          <li>「刪除全部資料」——所有行程、收據、照片、設定一次清空</li>
+        </ul>
+      </li>
+      <li>確認後立即生效，不用等待、不用審核</li>
+    </ol>
+
+    <div class="box">
+      <strong>資料保留期限</strong>
+      <small>
+        沒有額外保留期。按下刪除的當下，資料就從你的手機裡完全移除，我們這邊沒有伺服器留著任何副本可以刪——因為本來就沒有收過。
+        如果你直接把整個 App 移除安裝，效果一樣：所有資料跟著解除安裝一起消失，沒有殘留。
+      </small>
+    </div>
+
+    <p class="legal">
+      有問題可以寄
+      <a href="mailto:shu.developer.tw@gmail.com">shu.developer.tw@gmail.com</a>，
+      但刪除資料本身不需要透過我們，你自己在 App 裡就能完成。
+    </p>
+  </section>
+
+  <hr class="divider" />
+
+  <section id="ja" lang="ja">
+    <h2>データ削除について</h2>
+    <p class="updated">Kaeru（開発者：shu.developer.tw@gmail.com）</p>
+    <p class="intro">
+      Kaeru にはアカウント機能もサーバーもありません。レシート・写真・旅程設定はすべてお使いの端末内にのみ保存されます。
+      データの削除に当社への連絡は不要で、端末上ですぐに完了します。
+    </p>
+
+    <p class="intro" style="font-weight:700;">削除方法</p>
+    <ol class="steps">
+      <li>Kaeru アプリを開く</li>
+      <li>右上の「☰」（メニュー）から「設定」をタップ</li>
+      <li>「データ管理」をタップ</li>
+      <li>削除する範囲を選択：
+        <ul>
+          <li>「写真のみ削除」——金額記録は残し、写真だけ消去</li>
+          <li>「終了した旅程を削除」——期限切れの旅程とレシートのみ削除</li>
+          <li>「全データを削除」——すべての旅程・レシート・写真・設定を一括削除</li>
+        </ul>
+      </li>
+      <li>確認後すぐに反映されます。待機や承認は不要です</li>
+    </ol>
+
+    <div class="box">
+      <strong>データの保存期間</strong>
+      <small>
+        追加の保存期間はありません。削除した瞬間に端末から完全に消去されます。当社にはサーバーがなく、そもそもデータを受け取っていないため、削除できる複製もありません。
+        アプリ自体をアンインストールした場合も同様に、すべてのデータが消去され、残存しません。
+      </small>
+    </div>
+
+    <p class="legal">
+      ご不明点は
+      <a href="mailto:shu.developer.tw@gmail.com">shu.developer.tw@gmail.com</a> までご連絡ください。
+      ただし削除自体は当社を介さず、アプリ内でいつでも完了できます。
+    </p>
+  </section>
+</main>
+</body>
+</html>
