@@ -2,9 +2,12 @@ import { test } from '@playwright/test';
 import { seedTrip, TINY_PNG } from './helpers.js';
 import fs from 'node:fs';
 
-// 一次性產生 Google Play 上架用的正式尺寸截圖（1080×2400，20:9，符合
-// Play Console 手機截圖規格：長邊 320–3840px、長寬比在 16:9～9:16 之間）。
-// 用 360×800 的 CSS viewport + deviceScaleFactor 3 算出來的實際像素。
+// 一次性產生 Google Play 上架用的正式尺寸截圖（1080×1920，9:16）。
+// Play Console 手機截圖規格寫得很明確：顯示比例「必須」是 16:9 或 9:16
+// （不是隨便一個接近的比例都收），且至少一邊 ≥1080px 才符合宣傳資格。
+// 用 432×768 的 CSS viewport（432 還在這個 App 支援的 320–480 寬度內，
+// 不會像更窄的寬度那樣把數字擠到超出螢幕）+ deviceScaleFactor 2.5，算出
+// 來剛好是 1080×1920，比例精準等於 9:16。
 const OUT_DIR = 'assets/play-store-screenshots';
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
@@ -75,7 +78,7 @@ const photos = Object.fromEntries(
 // 視窗、e2e 全部測試都跑這個尺寸）——用它，不是隨便挑一個手機寬度，
 // 避免踩到「螢幕比預期窄，數字被切掉」這種在真正窄螢幕手機上才會
 // 出現的排版問題。deviceScaleFactor 3 放大到 1170×2532 輸出。
-test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3 });
+test.use({ viewport: { width: 432, height: 768 }, deviceScaleFactor: 2.5 });
 
 test('產生 Play Store 上架截圖', async ({ page }) => {
   await seedTrip(page, { trips: [trip], activeId: 't1', items, photos });
