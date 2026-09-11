@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kaeru 使用者教學 / 使い方ガイド</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #F2F0ED;
+    --page: #FFFFFF;
+    --soft: #F4F2EF;
+    --ink: #494640;
+    --sub: #8B857D;
+    --line: #E1DCD5;
+    --blue: #77899A;
+    --blueDeep: #5C6D7C;
+    --sage: #93A392;
+    --claySoft: #EFE2D6;
+    --clayInk: #8A6448;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Noto Sans TC", "Noto Sans JP", "Hiragino Sans", "Yu Gothic",
+      "Microsoft JhengHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+    letter-spacing: 0.01em;
+    line-height: 1.85;
+  }
+  main {
+    max-width: 640px;
+    margin: 0 auto;
+    background: var(--page);
+    min-height: 100vh;
+    padding: 32px 22px 64px;
+  }
+  header.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 28px;
+  }
+  header.brand h1 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--blueDeep);
+    margin: 0;
+  }
+  section { margin-top: 44px; }
+  section:first-of-type { margin-top: 0; }
+  h2 { font-size: 21px; margin: 0 0 4px; }
+  p.intro { font-size: 14px; margin: 0 0 20px; }
+  .kicker {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    color: var(--blue);
+    margin: 0 0 14px;
+    text-transform: uppercase;
+  }
+  ol.steps { margin: 0 0 12px; padding: 0 0 0 1.4em; font-size: 14px; }
+  ol.steps li { margin-bottom: 10px; }
+  .box {
+    background: var(--soft);
+    padding: 16px;
+    margin: 18px 0;
+    font-size: 13px;
+  }
+  .box strong { display: block; margin-bottom: 4px; }
+  .box.warn { background: var(--claySoft); color: var(--clayInk); }
+  .step-num {
+    display: inline-block;
+    font-weight: 700;
+    color: var(--blue);
+    min-width: 1.6em;
+  }
+  a { color: var(--blueDeep); }
+  hr.divider { border: none; border-top: 1px solid var(--ink); margin: 56px 0 44px; }
+</style>
+</head>
+<body>
+<main>
+  <header class="brand">
+    <svg width="26" height="26" viewBox="0 0 24 24" role="img" aria-label="Kaeru">
+      <path d="M2.4 13.6C2.4 9.2 6.7 6.1 12 6.1s9.6 3.1 9.6 7.5c0 3.3-4.3 5.6-9.6 5.6s-9.6-2.3-9.6-5.6z" fill="#93A392"/>
+      <circle cx="7.2" cy="6.3" r="3.5" fill="#93A392"/>
+      <circle cx="16.8" cy="6.3" r="3.5" fill="#93A392"/>
+      <circle cx="7.2" cy="5.9" r="1.35" fill="#FFFFFF"/>
+      <circle cx="16.8" cy="5.9" r="1.35" fill="#FFFFFF"/>
+      <circle cx="7.4" cy="5.9" r="0.62" fill="#93A392"/>
+      <circle cx="16.6" cy="5.9" r="0.62" fill="#93A392"/>
+    </svg>
+    <h1>KAERU</h1>
+  </header>
+
+  <section id="zh" lang="zh-Hant">
+    <h2>使用者教學</h2>
+    <p class="intro">
+      2026 年 11 月起，日本免稅制度改成「先付後退」——結帳先付含稅價，出境查驗通過後才退稅。
+      Kaeru 幫你把整趟行程的收據、期限、達標狀況集中管理。
+    </p>
+
+    <p class="kicker">開始一趟行程</p>
+    <ol class="steps">
+      <li>第一次打開 App 會自動建一趟「未命名行程」，點右上角行程名稱可以改名、填回程時間、選機場</li>
+      <li>填了回程時間，總覽頁才會顯示倒數天數，也才算得出每張收據的 90 天期限</li>
+      <li>行程名稱可以不填，不影響任何功能</li>
+    </ol>
+
+    <p class="kicker">新增收據</p>
+    <ol class="steps">
+      <li>點右上角「+」，選「拍照」「從相簿選」或「掃描文件」</li>
+      <li>金額和店名會自動讀出來；讀不到也能先存起來，晚點再手動補</li>
+      <li>同一間店、同一天的收據會自動合併計算，一眼看出稅抜合計有沒有滿 5,000 円</li>
+      <li>收據照片和物品照片分開管理，長按縮圖可以隨時改分類</li>
+    </ol>
+
+    <div class="box">
+      <strong>達標判定用「稅抜金額」，不是含稅價</strong>
+      同一間店同一天，稅抜合計滿 5,000 円就符合門檻，不分商品種類。
+    </div>
+
+    <p class="kicker">出境查驗</p>
+    <ol class="steps">
+      <li>「查驗」分頁整理好還沒辦完的收據清單，中日對照，出示給海關方便許多</li>
+      <li>海關查驗以一張收據為單位，只要有一項東西沒帶在身上，整張都不能退</li>
+      <li>拆封、穿過都沒關係；真的吃掉、用掉才要向海關人員申報</li>
+    </ol>
+
+    <div class="box warn">
+      <strong>90 天期限</strong>
+      購買日起 90 天內要出境並完成查驗，總覽頁會提前顯示期限倒數跟提醒。
+    </div>
+
+    <p class="kicker">資料管理</p>
+    <ol class="steps">
+      <li>「設定 → 資料管理」隨時可以匯出（CSV／ZIP 含照片）或刪除資料</li>
+      <li>可以只刪照片、只刪已結束的行程，或整個清空重來</li>
+      <li>所有資料只存在這台手機裡，沒有伺服器、不用註冊帳號</li>
+    </ol>
+
+    <p class="intro" style="margin-top:8px;">
+      更多規則細節（消費稅是幾 %、可以先拆包裝嗎、VJW 是什麼）整理在 App 內的「FQA」分頁，
+      也可以在那裡試走一遍情境模擬，練習算一趟行程能退多少。
+    </p>
+  </section>
+
+  <hr class="divider" />
+
+  <section id="ja" lang="ja">
+    <h2>使い方ガイド</h2>
+    <p class="intro">
+      2026 年 11 月より、日本の免税制度は「リファンド方式」に変わります——会計時に税込価格を支払い、
+      出国時の税関確認後に返金されます。Kaeru は旅程中のレシート・期限・達成状況をまとめて管理します。
+    </p>
+
+    <p class="kicker">旅程を始める</p>
+    <ol class="steps">
+      <li>初回起動時に「名称未設定の旅程」が自動作成されます。右上の旅程名をタップすると、名称変更・帰国便時刻・空港を設定できます</li>
+      <li>帰国便時刻を入力すると、ホーム画面にカウントダウンが表示され、各レシートの90日期限も計算されます</li>
+      <li>旅程名は未入力でも構いません</li>
+    </ol>
+
+    <p class="kicker">レシートを追加</p>
+    <ol class="steps">
+      <li>右上の「+」をタップし、「撮影」「アルバムから選択」「文書をスキャン」のいずれかを選択</li>
+      <li>金額と店名は自動で読み取られます。読み取れない場合も先に保存し、後で手動入力できます</li>
+      <li>同一店舗・同一日のレシートは自動的にまとめられ、税抜合計が5,000円に達しているか一目で分かります</li>
+      <li>レシート写真と商品写真は別々に管理でき、サムネイルを長押しで分類を変更できます</li>
+    </ol>
+
+    <div class="box">
+      <strong>達成判定は「税抜金額」で行います（税込ではありません）</strong>
+      同一店舗・同一日の税抜合計が5,000円以上で、商品の種類を問わず対象になります。
+    </div>
+
+    <p class="kicker">出国時の確認</p>
+    <ol class="steps">
+      <li>「確認」タブに未処理のレシート一覧が中日対訳で整理され、税関での提示がスムーズになります</li>
+      <li>税関確認はレシート単位です。1つでも所持していない場合、そのレシート全体が対象外になります</li>
+      <li>開封・着用は問題ありません。消費した場合のみ税関職員への申告が必要です</li>
+    </ol>
+
+    <div class="box warn">
+      <strong>90日間の期限</strong>
+      購入日から90日以内に出国し、税関確認を完了する必要があります。ホーム画面で期限のカウントダウンと通知が表示されます。
+    </div>
+
+    <p class="kicker">データ管理</p>
+    <ol class="steps">
+      <li>「設定 → データ管理」からいつでもデータの書き出し（CSV／写真付きZIP）や削除ができます</li>
+      <li>写真のみ削除、終了した旅程のみ削除、または全データの削除も選べます</li>
+      <li>すべてのデータは端末内にのみ保存され、サーバーもアカウント登録も不要です</li>
+    </ol>
+
+    <p class="intro" style="margin-top:8px;">
+      その他の詳細ルール（消費税率、開封の可否、VJWとは何か等）はアプリ内「FQA」タブにまとめてあります。
+      シミュレーション機能で、旅程全体でいくら還付されるか練習することもできます。
+    </p>
+  </section>
+</main>
+</body>
+</html>
