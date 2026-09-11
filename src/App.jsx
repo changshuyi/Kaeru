@@ -673,10 +673,25 @@ export default function App() {
       <style>{`.jp-underline:focus{border-color:${C.ink} !important}
         input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
         input[type=number]{-moz-appearance:textfield}
-        /* RWD：單欄置中，320–480 隨欄寬，480 以上鎖寬只加留白，<390 整體等比縮放 */
-        .kaeru-app{width:100%;max-width:480px;margin-inline:auto;min-height:100dvh;display:flex;flex-direction:column}
-        @media (min-width:768px){.kaeru-app{border-left:1px solid ${C.line};border-right:1px solid ${C.line}}}
-        @media (max-width:389.98px){.kaeru-app{width:390px;zoom:calc(100vw / 390)}}
+        /* RWD：單欄置中，320–480 隨欄寬，480 以上鎖寬只加留白，<390 整體等比縮放。
+           縮放本來用 CSS 的 zoom 屬性做，但 zoom 是非標準屬性，不同廠牌手機的
+           WebView 支援程度不一致——實測某支 Android 手機完全沒套用 zoom，
+           畫面照 390px 版面整個畫出來，超出螢幕的部分被直接裁掉，不是等比縮小。
+           改用所有瀏覽器都支援的 transform:scale。transform 不會讓元素本身
+           在版面裡佔用的空間跟著縮小（跟 zoom 不一樣），所以要手動補償：
+           - overflow-x:hidden 擋掉右側因為版面沒縮小而多出來的水平捲動空間
+           - margin-bottom 用負值把「視覺縮小後」跟「版面裡實際佔用高度」的
+             差額拉掉，不然畫面下面會留一截可以往下捲、卻是空的區域 */
+        @media (max-width:389.98px){
+          html,body{overflow-x:hidden}
+          .kaeru-app{
+            --k-scale:calc(100vw / 390px);
+            width:390px;
+            transform-origin:top left;
+            transform:scale(var(--k-scale));
+            margin-bottom:calc(-100dvh * (1 - var(--k-scale)));
+          }
+        }
         .kaeru-pad{padding-left:26px;padding-right:26px}
         @media (min-width:480px){.kaeru-pad{padding-left:30px;padding-right:30px}}
         .kaeru-bignum{font-size:48px}
