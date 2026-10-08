@@ -10,6 +10,22 @@ export const todayStr = () => {
 };
 export const groupKey = (it) => `${(it.shop || '').trim()}||${it.date}`;
 
+// 新舊制看的是「購買日期」，不是入境或出境日期：10/31 以前買的走舊制，
+// 結帳當下就已經是免稅價，出境不用辦海關確認、也不會再退一次錢；
+// 11/1 起買的才是先付含稅價、出境確認後退款的新制。跨 10/31～11/1 的
+// 行程，同一趟裡會兩種收據混在一起，只能一張一張看日期判斷。
+export const NEW_SYSTEM_START = '2026-11-01';
+
+// 舊制收據：不刪除、不隱藏，但不進查驗清單、期限倒數跟預估退稅額——
+// 那些都是新制才有的流程，算進去會叫使用者去機場辦一個不存在的手續，
+// 首頁的待退金額也會憑空灌水。日期格式不對時當作新制（跟 daysLeft
+// 一樣，壞資料不要猜成比較特殊的那一種）。
+export function isOldSystem(it) {
+  const d = it && it.date;
+  if (!d || !/^\d{4}-\d{2}-\d{2}/.test(d)) return false;
+  return d.slice(0, 10) < NEW_SYSTEM_START;
+}
+
 export function daysLeft(dateStr) {
   if (!dateStr) return null;
   const d = new Date(dateStr + 'T00:00:00');
@@ -48,6 +64,8 @@ export function isExpiredUnclaimed(it) {
   // 警示，兩邊自相矛盾。
   if (it.status === 'refunded' || it.status === 'verified' || it.consumed)
     return false;
+  // 舊制結帳就免稅了，沒有「90 天內出境確認」這回事，不會過期。
+  if (isOldSystem(it)) return false;
   const d = daysLeft(it.date);
   return d !== null && d < 0;
 }

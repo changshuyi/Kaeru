@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { C } from '../../constants/theme.js';
 import { STAGES } from '../../constants/app.js';
-import { yen, twd, netOfItem } from '../../lib/money.js';
-import { daysLeft } from '../../lib/date.js';
+import { yen, twd, netOfItem, taxOfItem, feeOf, feeHeavy } from '../../lib/money.js';
+import { daysLeft, isOldSystem } from '../../lib/date.js';
 import { rotateImageSrc } from '../../lib/image.js';
 import { useBackClose } from '../../hooks/useBackNav.js';
 import { usePhotoCapture } from '../../hooks/usePhotoCapture.js';
@@ -31,11 +31,16 @@ export function DetailSheet({
   const d = daysLeft(item.date);
   const tax = taxOf(item);
   const consumedDead = !!item.consumed;
+  // 舊制（10/31 以前買的）結帳就免稅：不顯示進度、期限跟退稅額。
+  // 已經標「在境內消費」的話照消費的規則顯示，那個比較嚴重。
+  const oldSystem = !consumedDead && isOldSystem(item);
+  const fee = feeOf(item);
   // 跟 ReceiptCard/isExpiredUnclaimed 同一套判斷：已查驗/已退款的收據
   // 就算超過 90 天也不算「來不及」，錢已經到手或查驗過了；只有還卡在
   // 購買/登記階段、又超過 90 天的才算真的錯過。
   const expiredDead =
     !consumedDead &&
+    !oldSystem &&
     item.status !== 'refunded' &&
     item.status !== 'verified' &&
     d !== null &&
@@ -104,7 +109,9 @@ export function DetailSheet({
           style={{ color: C.sub, fontSize: '11.5px' }}
         >
           {item.date}
-          {dead
+          {oldSystem
+            ? ` · ${t.oldSystemBadge}`
+            : dead
             ? ` · ${consumedDead ? t.stalledShort : t.expiredBadge}`
             : refunded
               ? ` · ${t.caseClosed}`
@@ -138,13 +145,14 @@ export function DetailSheet({
               ¥{yen(item.incl)}
             </p>
           </div>
+          {!oldSystem && (
           <div className="text-right">
             <p style={{ color: C.sub, fontSize: '11.5px' }}>
               {dead
                 ? `${t.taxAmount} ${t.lostTax}`
                 : refunded
                   ? `${t.checkRefunded} ≈ NT$${twd(tax * settings.rate)}`
-                  : `${t.taxAmount} ≈ NT$${twd(tax * settings.rate)}`}
+                  : `${fee > 0 ? t.feeNetLabel : t.taxAmount} ≈ NT$${twd(tax * settings.rate)}`}
             </p>
             <p
               className="mt-1 font-semibold tabular-nums"
@@ -157,6 +165,7 @@ export function DetailSheet({
               ¥{yen(tax)}
             </p>
           </div>
+          )}
         </div>
 
         <div
@@ -180,8 +189,38 @@ export function DetailSheet({
           </span>
         </div>
 
+        {fee > 0 && !oldSystem && (
+          <p
+            className="mt-2 tabular-nums"
+            style={{ fontSize: '11.5px', color: C.sub }}
+          >
+            {t.taxAmount} ¥{yen(taxOfItem(item))} − {t.feeShort} ¥{yen(fee)} ={' '}
+            {t.feeNetLabel} ¥{yen(tax)}
+          </p>
+        )}
+        {fee > 0 && !oldSystem && !dead && !refunded && feeHeavy(item) && (
+          <p
+            className="mt-3"
+            style={{
+              backgroundColor: C.soft,
+              borderLeft: `3px solid ${C.clay}`,
+              color: C.clayInk,
+              fontSize: '12.5px',
+              lineHeight: 1.8,
+              padding: '12px 14px',
+            }}
+          >
+            {t.feeHeavyWarn}
+          </p>
+        )}
+
         <div className="mt-4 flex flex-wrap gap-1.5">
-          {consumedDead ? (
+          {oldSystem ? (
+            <>
+              <Badge tone="outline">{t.oldSystemBadge}</Badge>
+              {item.unpacked && <Badge tone="outline">{t.unpackedShort}</Badge>}
+            </>
+          ) : consumedDead ? (
             <>
               <Badge tone="clay">{t.consumedShort}</Badge>
               <Badge tone="clay">{t.dead}</Badge>
@@ -215,6 +254,7 @@ export function DetailSheet({
           )}
         </div>
 
+        {!oldSystem && (
         <div className="mt-8">
           <p
             className="font-bold"
@@ -327,8 +367,22 @@ export function DetailSheet({
             })}
           </div>
         </div>
+        )}
 
-        {consumedDead ? (
+        {oldSystem ? (
+          <p
+            className="mt-6"
+            style={{
+              backgroundColor: C.soft,
+              color: C.ink,
+              fontSize: '13px',
+              lineHeight: 2,
+              padding: '14px',
+            }}
+          >
+            {t.oldSystemNote}
+          </p>
+        ) : consumedDead ? (
           <>
             <p
               className="mt-6"

@@ -1,8 +1,8 @@
 import { Camera as CameraIcon } from 'lucide-react';
 import { C } from '../../constants/theme.js';
 import { STAGES } from '../../constants/app.js';
-import { yen, twd, netOfItem } from '../../lib/money.js';
-import { daysLeft } from '../../lib/date.js';
+import { yen, twd, netOfItem, feeOf, feeHeavy } from '../../lib/money.js';
+import { daysLeft, isOldSystem } from '../../lib/date.js';
 import { Badge } from '../ui/Badge.jsx';
 import { Ticket } from '../ui/Ticket.jsx';
 
@@ -18,8 +18,35 @@ export function ReceiptCard({
   onEditTrip,
   onClick,
 }) {
+  // 舊制（10/31 以前買的）結帳就免稅了：沒有進度、沒有期限、也沒有要
+  // 退的錢，整張卡換成一個精簡版本，不要套新制的四段進度跟倒數。
+  if (isOldSystem(it)) {
+    return (
+      <Ticket tone="normal" onClick={onClick} separator={separator}>
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="font-semibold tabular-nums" style={{ fontSize: '18px', color: C.ink }}>
+            ¥{yen(it.incl)}
+          </p>
+          <p className="tabular-nums" style={{ color: C.sub, fontSize: '11px' }}>
+            {t.oldSystemNoRefund}
+          </p>
+        </div>
+        {/* 「舊制」徽章已經掛在分組表頭（同組共用日期），卡片上不重複 */}
+        {it.unpacked && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            <Badge tone="outline">{t.unpackedShort}</Badge>
+          </div>
+        )}
+        <p className="mt-2.5" style={{ color: C.sub, fontSize: '11.5px', lineHeight: 1.8 }}>
+          {t.oldSystemNote}
+        </p>
+      </Ticket>
+    );
+  }
+
   const d = daysLeft(it.date);
   const tax = taxOf(it);
+  const fee = feeOf(it);
   const consumedDead = !!it.consumed;
   // 已超過 90 天期限、還沒真的退到錢的收據，跟「已在境內消費」共用同一套
   // 失效樣式（卡底色、金額劃線）——但這是「來不及」不是「用掉了」，徽章
@@ -74,7 +101,7 @@ export function ReceiptCard({
           ¥{yen(it.incl)}
         </p>
         <p className="tabular-nums" style={{ color: C.sub, fontSize: '11px' }}>
-          {t.taxAmount} ¥{yen(tax)}
+          {fee > 0 && !dead ? t.feeNetLabel : t.taxAmount} ¥{yen(tax)}
           {dead ? ` ${t.lostTax}` : ` ≈ NT$${twd(tax * settings.rate)}`}
         </p>
       </div>
@@ -178,6 +205,14 @@ export function ReceiptCard({
                 {netOfItem(it) >= 1000000 && <Badge tone="blue">100万円+</Badge>}
               </>
             )}
+            {fee > 0 &&
+              (feeHeavy(it) ? (
+                <Badge tone="clay">{t.feeHeavyBadge}</Badge>
+              ) : (
+                <Badge tone="outline">
+                  {t.feeShort} ¥{yen(fee)}
+                </Badge>
+              ))}
             {showDeadlinePending && (
               // 線框＝待補，不是警示，故意不用 clay 填色——這張收據本身
               // 沒問題，只是還算不出期限。點了直接跳去填回程時間，不能

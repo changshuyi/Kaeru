@@ -34,7 +34,7 @@ describe('csvEscape', () => {
 
 describe('buildCsv', () => {
   const labels = {
-    headers: ['行程', '店名', '日期', '含稅金額', '稅率', '退款方式', '狀態', '備註'],
+    headers: ['行程', '店名', '日期', '含稅金額', '稅率', '手續費', '退款方式', '狀態', '備註'],
     tripNameFor: (id) => (id === 't1' ? '大阪出差' : '未命名行程'),
     stageLabelFor: (s) => ({ purchased: '已購買', registered: '已登記', verified: '已查驗', refunded: '已退款' })[s] || '',
     refundLabelFor: (m) => ({ registered: '有登記', no: '沒有', unsure: '不確定' })[m] || '',
@@ -49,6 +49,16 @@ describe('buildCsv', () => {
     const cols = dataRow.split(',');
     expect(cols[3]).toBe('');
     expect(cols[4]).toBe('');
+  });
+
+  it('手續費有填才輸出數字，沒填是空白不是 0', () => {
+    const base = { tripId: 't1', shop: 'A', date: '2026-11-03', incl: 5500, rate: 10, refundMethod: 'registered', status: 'purchased', note: '' };
+    const withFee = buildCsv([{ ...base, fee: 320 }], labels).text.split('\r\n')[1].split(',');
+    const noFee = buildCsv([base], labels).text.split('\r\n')[1].split(',');
+    expect(withFee[5]).toBe('320');
+    expect(noFee[5]).toBe('');
+    // 欄數要跟表頭一致
+    expect(withFee.length).toBe(labels.headers.length);
   });
 
   it('混合稅率輸出成 8%+10%，不是單一數字', () => {

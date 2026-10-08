@@ -11,13 +11,15 @@ import fs from 'node:fs';
 const OUT_DIR = 'assets/play-store-screenshots';
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
-const trip = { id: 't1', name: '大阪五日遊', departure: '2026-09-13T18:30', airport: 'KIX' };
+// 日期要在 2026-11-01 之後——之前的會被當成舊制（結帳就免稅），收據卡
+// 換成精簡版、不進查驗清單，截出來就不是新制的畫面了。
+const trip = { id: 't1', name: '大阪五日遊', departure: '2026-11-13T18:30', airport: 'KIX' };
 
 const items = [
   {
     id: 'r1',
     shop: '大國藥妝 心齋橋店',
-    date: '2026-09-05',
+    date: '2026-11-05',
     incl: 12800,
     rate: 10,
     status: 'verified',
@@ -28,7 +30,7 @@ const items = [
   {
     id: 'r2',
     shop: 'ビックカメラ 難波店',
-    date: '2026-09-06',
+    date: '2026-11-06',
     incl: 45800,
     rate: 10,
     status: 'registered',
@@ -39,7 +41,7 @@ const items = [
   {
     id: 'r3',
     shop: 'UNIQLO なんば店',
-    date: '2026-09-06',
+    date: '2026-11-06',
     incl: 6600,
     rate: 10,
     status: 'purchased',
@@ -50,7 +52,7 @@ const items = [
   {
     id: 'r4',
     shop: '7-Eleven 難波駅前',
-    date: '2026-09-07',
+    date: '2026-11-07',
     incl: 980,
     rate: 8,
     status: 'purchased',
@@ -60,7 +62,7 @@ const items = [
   {
     id: 'r5',
     shop: '讚岐うどん本店',
-    date: '2026-09-07',
+    date: '2026-11-07',
     incl: 1200,
     rate: 8,
     status: 'purchased',

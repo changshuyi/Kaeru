@@ -12,8 +12,14 @@ import {
 import { C, FONT } from './constants/theme.js';
 import { MAIN_KEY } from './constants/app.js';
 import { T } from './i18n/translations.js';
-import { netOfItem } from './lib/money.js';
-import { groupKey, daysLeft, isPendingInfo, isExpiredUnclaimed } from './lib/date.js';
+import { netOfItem, refundOfItem } from './lib/money.js';
+import {
+  groupKey,
+  daysLeft,
+  isPendingInfo,
+  isExpiredUnclaimed,
+  isOldSystem,
+} from './lib/date.js';
 import { genTripId } from './lib/trip.js';
 import { useBackClose, deferOpen, kaeruBackDepth } from './hooks/useBackNav.js';
 import { FrogMark } from './components/ui/FrogMark.jsx';
@@ -257,21 +263,10 @@ export default function App() {
     return m;
   }, [photos]);
 
+  // 畫面上所有「能退多少」的數字都吃這個：稅額（含手動覆寫、夾上限）
+  // 扣掉退款手續費之後的預估實拿，見 lib/money.js。
   function taxOf(it) {
-    // 這張收據理論上能退的稅額上限：含稅金額－稅抜金額。
-    const naiveTax = (it.incl || 0) - netOfItem(it);
-    if (
-      it.taxOverride !== null &&
-      it.taxOverride !== undefined &&
-      it.taxOverride !== ''
-    ) {
-      // #12 修正：手動輸入的退稅金額原本沒有跟這個理論上限比對，打錯
-      // 一個位數（例如多打一個 0）不會被擋下來，會直接算進可退稅總額、
-      // 查驗頁總額等所有地方。夾在 [0, naiveTax] 之間。
-      const override = Number(it.taxOverride) || 0;
-      return Math.min(Math.max(0, override), naiveTax);
-    }
-    return naiveTax;
+    return refundOfItem(it);
   }
 
   function deleteTrip(id) {
@@ -342,14 +337,19 @@ export default function App() {
     let totalIncl = 0,
       pending = 0,
       refunded = 0,
-      dead = 0;
+      dead = 0,
+      old = 0;
     for (const it of list) {
       totalIncl += it.incl || 0;
       if (it.consumed) dead++;
       else if (it.status === 'refunded') refunded++;
+      // 舊制收據結帳就免稅了，沒有後續要處理，另外算一類——算進 pending
+      // 的話，「這趟結束了」的提示永遠跳不出來；算進 refunded 又會在行程
+      // 面板上謊稱「已退款」。
+      else if (isOldSystem(it)) old++;
       else pending++;
     }
-    return { count: list.length, totalIncl, pending, refunded, dead };
+    return { count: list.length, totalIncl, pending, refunded, dead, old };
   }
 
   // 期限「還剩幾天」概念上是從回程時間往回算的——沒有回程時間，這個
@@ -379,7 +379,11 @@ export default function App() {
       // 使用者以為還有機會。兩者都不刪除、不隱藏，只是不進這裡的加總。
       const pendingInfo = isPendingInfo(it);
       const expired = isExpiredUnclaimed(it);
-      const eligible = g && g.ok && !it.consumed && !pendingInfo && !expired;
+      // 舊制收據（10/31 以前買的）結帳就免稅了，不會再退錢、也不用在
+      // 機場辦確認，不進任何新制流程的加總，見 isOldSystem。
+      const old = isOldSystem(it);
+      const eligible =
+        g && g.ok && !it.consumed && !pendingInfo && !expired && !old;
       if (eligible && it.status !== 'refunded') refundable += taxOf(it);
       // #10 修正：原本只算 status==='refunded'——「已查驗」（在機場查驗
       // 過、只是還沒手動標成「已退款」）的金額既不算進 refundable 之後
@@ -395,7 +399,13 @@ export default function App() {
       // 已在境內吃掉/用掉的收據退不了稅，不算「還沒處理」，跟
       // tripStatsFor 的 pending 判斷一致，不然首頁「還沒處理」的張數
       // 跟最近到期倒數，會把已經失效、退不了稅的收據也算進去。
-      if (it.status !== 'refunded' && !it.consumed && !pendingInfo && !expired) {
+      if (
+        it.status !== 'refunded' &&
+        !it.consumed &&
+        !pendingInfo &&
+        !expired &&
+        !old
+      ) {
         pendingCount++;
         const d = hasDeparture ? daysLeft(it.date) : null;
         if (d !== null && (minDays === null || d < minDays)) minDays = d;
@@ -485,6 +495,7 @@ export default function App() {
     (it) =>
       !it.consumed &&
       !isPendingInfo(it) &&
+      !isOldSystem(it) &&
       (it.status === 'verified' || it.status === 'refunded'),
   ).length;
   const shouldPromptRefundCheck =
@@ -897,7 +908,8 @@ export default function App() {
                       g.ok &&
                       !it.consumed &&
                       !isPendingInfo(it) &&
-                      !isExpiredUnclaimed(it);
+                      !isExpiredUnclaimed(it) &&
+                      !isOldSystem(it);
                     return eligible &&
                       (it.status === 'purchased' || it.status === 'registered')
                       ? { ...it, status: 'verified' }
@@ -1111,6 +1123,7 @@ export default function App() {
             (it) =>
               !it.consumed &&
               !isPendingInfo(it) &&
+              !isOldSystem(it) &&
               (it.status === 'verified' || it.status === 'refunded'),
           )}
           taxOf={taxOf}

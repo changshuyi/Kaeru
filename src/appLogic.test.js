@@ -1,6 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { netOf, netOfItem } from './lib/money.js';
-import { daysLeft, isPendingInfo, isExpiredUnclaimed } from './lib/date.js';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  netOf,
+  netOfItem,
+  taxOfItem,
+  feeOf,
+  refundOfItem,
+  feeHeavy,
+} from './lib/money.js';
+import { daysLeft, isPendingInfo, isExpiredUnclaimed, isOldSystem } from './lib/date.js';
 import { inferRefundMethod } from './lib/trip.js';
 import {
   parseReceiptOCR,
@@ -12,6 +19,15 @@ describe('netOf / netOfItem（稅抜金額計算）', () => {
   it('用捨去、不是四捨五入——貼近店家收銀機的算法', () => {
     // 1000 / 1.1 = 909.0909...，捨去應該是 909，不是 910
     expect(netOf(1000, 10)).toBe(909);
+  });
+  it('整除的金額不能被浮點誤差少算 1 円（33000 / 1.1 = 29999.999…）', () => {
+    expect(netOf(33000, 10)).toBe(30000);
+    expect(netOf(5500, 10)).toBe(5000);
+    expect(netOf(5400, 8)).toBe(5000);
+    // 掃一輪：稅抜 n 是 10 的倍數時含稅剛好是整數，換回來一定要拿回 n
+    for (let n = 10; n <= 300000; n += 10) {
+      if (netOf((n / 10) * 11, 10) !== n) throw new Error(`netOf 錯在 ${n}`);
+    }
   });
   it('沒給稅率預設當 10%——跟明確傳 10 的結果要一樣', () => {
     expect(netOf(1100, undefined)).toBe(netOf(1100, 10));
@@ -68,7 +84,15 @@ describe('isExpiredUnclaimed（超過期限又沒退成的收據）', () => {
     expect(isExpiredUnclaimed({ status: 'purchased', consumed: true, date: '2000-01-01' })).toBe(false);
   });
   it('還卡在待處理、日期超過 90 天 → 算過期沒救', () => {
-    expect(isExpiredUnclaimed({ status: 'purchased', date: '2000-01-01' })).toBe(true);
+    // 新制 11/1 才上路，要有「超過 90 天的新制收據」得把時間撥到明年；
+    // 2000-01-01 這種日期現在會被當成舊制，不會過期。
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2027-03-01T12:00:00'));
+    try {
+      expect(isExpiredUnclaimed({ status: 'purchased', date: '2026-11-15' })).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('還沒到期的不算', () => {
     const future = new Date();
@@ -189,5 +213,53 @@ describe('reconstructRowsFromLines（座標重組成閱讀順序）', () => {
     expect(reconstructRowsFromLines([])).toBe('');
     expect(reconstructRowsFromLines(null)).toBe('');
     expect(reconstructRowsFromLines([{ text: '  ' }])).toBe('');
+  });
+});
+
+describe('isOldSystem（新舊制看購買日期）', () => {
+  it('10/31 買的是舊制', () => {
+    expect(isOldSystem({ date: '2026-10-31' })).toBe(true);
+  });
+  it('11/1 起買的是新制', () => {
+    expect(isOldSystem({ date: '2026-11-01' })).toBe(false);
+    expect(isOldSystem({ date: '2027-01-15' })).toBe(false);
+  });
+  it('沒日期或格式不對當新制，不猜成比較特殊的那一種', () => {
+    expect(isOldSystem({ date: '' })).toBe(false);
+    expect(isOldSystem({ date: 'not-a-date' })).toBe(false);
+    expect(isOldSystem(null)).toBe(false);
+  });
+  it('舊制收據就算超過 90 天也不算「過期沒退到」', () => {
+    expect(
+      isExpiredUnclaimed({ date: '2026-01-01', status: 'purchased', consumed: false }),
+    ).toBe(false);
+  });
+});
+
+describe('手續費（taxOfItem / refundOfItem / feeHeavy）', () => {
+  const base = { incl: 5500, rate: 10 }; // 稅抜 5000、稅 500
+  it('沒填手續費，實拿等於稅額', () => {
+    expect(taxOfItem(base)).toBe(500);
+    expect(refundOfItem(base)).toBe(500);
+  });
+  it('影片的例子：¥5,500 扣 ¥320 只剩 ¥180', () => {
+    expect(refundOfItem({ ...base, fee: 320 })).toBe(180);
+  });
+  it('手續費比稅額高，實拿是 0 不是負數', () => {
+    expect(refundOfItem({ ...base, fee: 800 })).toBe(0);
+  });
+  it('手動覆寫的稅額也會先夾在理論上限再扣手續費', () => {
+    expect(refundOfItem({ ...base, taxOverride: 9999, fee: 100 })).toBe(400);
+  });
+  it('負數或亂填的手續費當 0', () => {
+    expect(feeOf({ fee: -5 })).toBe(0);
+    expect(feeOf({ fee: 'abc' })).toBe(0);
+    expect(feeOf({})).toBe(0);
+  });
+  it('手續費吃掉一半以上才算偏高', () => {
+    expect(feeHeavy({ ...base, fee: 320 })).toBe(true);
+    expect(feeHeavy({ ...base, fee: 250 })).toBe(true);
+    expect(feeHeavy({ ...base, fee: 249 })).toBe(false);
+    expect(feeHeavy(base)).toBe(false);
   });
 });

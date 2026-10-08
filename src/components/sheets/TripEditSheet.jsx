@@ -173,6 +173,9 @@ export function TripEditSheet({
                 {tripStats.refunded > 0 && (
                   <Badge tone="sage">{tripStats.refunded}{t.statusRefunded}</Badge>
                 )}
+                {tripStats.old > 0 && (
+                  <Badge tone="outline">{tripStats.old}{t.statusOldSystem}</Badge>
+                )}
                 {tripStats.dead > 0 && (
                   <Badge tone="clay">{tripStats.dead}{t.statusDead}</Badge>
                 )}
