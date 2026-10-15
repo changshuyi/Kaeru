@@ -9,13 +9,33 @@ export function compressImage(file, maxSide = 1000, quality = 0.6) {
   });
 }
 
+// 縮圖倍率。原本只看最長邊（最長邊縮到 maxSide），一般照片沒問題，
+// 但又窄又長的收據（藥妝店、超市一長條，長寬比 1:5、1:6 很常見）最長
+// 邊縮到 1000px 時，寬度只剩 170px 上下，字整排糊掉——查驗時要給海關
+// 看、回國要對帳都看不清楚，OCR 也讀不出來。
+// 改成兩個規則取比較寬鬆的那個：
+//   1) 舊規則：最長邊 ≤ maxSide。
+//   2) 總像素 ≤ 0.75 × maxSide²：剛好是一張 3:4 手機照片照舊規則縮完的
+//      像素數，所以一般比例的照片（長寬比 ≤ 4:3）結果跟以前一模一樣，
+//      單張照片的最大像素數也沒有超過以前的上限，不會讓整體儲存量
+//      暴增；只有長條形的照片會因為規則 2 保留比較多寬度。
+// 再加一個上限：最長邊不超過 4 × maxSide，免得極端比例的圖算出很誇張的
+// 高度。不放大（倍率最多 1）。
+export function fitScale(w, h, maxSide = 1000) {
+  if (!w || !h) return 1;
+  const long = Math.max(w, h);
+  const byLong = maxSide / long;
+  const byArea = Math.min(Math.sqrt((0.75 * maxSide * maxSide) / (w * h)), (4 * maxSide) / long);
+  return Math.min(1, Math.max(byLong, byArea));
+}
+
 // 跟 compressImage 一樣的縮圖／壓縮邏輯，但吃任意可載入的圖片來源
 // （dataURL、blob URL、Capacitor 的 webPath...），相簿多選跟掃描結果都靠這個。
 export function compressImageSrc(src, maxSide = 1000, quality = 0.6) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const scale = fitScale(img.width, img.height, maxSide);
       const c = document.createElement('canvas');
       c.width = Math.max(1, Math.round(img.width * scale));
       c.height = Math.max(1, Math.round(img.height * scale));

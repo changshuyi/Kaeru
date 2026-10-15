@@ -65,6 +65,7 @@ export function PhotoCaptureSheets({ t, cap, onConfirmCancelled }) {
           t={t}
           src={cap.confirmPhoto.src}
           fromScan={cap.confirmPhoto.fromScan}
+          extraPages={cap.confirmPhoto.extraPages}
           onRetake={cap.retake}
           onUse={cap.finishConfirm}
           onClose={() => {

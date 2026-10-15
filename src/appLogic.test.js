@@ -13,7 +13,9 @@ import {
   parseReceiptOCR,
   looksLikeReceiptText,
   reconstructRowsFromLines,
+  mergePageTexts,
 } from './lib/ocr.js';
+import { fitScale } from './lib/image.js';
 
 describe('netOf / netOfItem（稅抜金額計算）', () => {
   it('用捨去、不是四捨五入——貼近店家收銀機的算法', () => {
@@ -261,5 +263,52 @@ describe('手續費（taxOfItem / refundOfItem / feeHeavy）', () => {
     expect(feeHeavy({ ...base, fee: 250 })).toBe(true);
     expect(feeHeavy({ ...base, fee: 249 })).toBe(false);
     expect(feeHeavy(base)).toBe(false);
+  });
+});
+
+describe('fitScale（長收據縮圖不能壓到看不清楚）', () => {
+  const dims = (w, h, max) => {
+    const k = fitScale(w, h, max);
+    return [Math.round(w * k), Math.round(h * k)];
+  };
+  it('一般 3:4 手機照片跟以前一樣：最長邊 1000', () => {
+    expect(dims(3000, 4000, 1000)).toEqual([750, 1000]);
+    expect(dims(4000, 3000, 1000)).toEqual([1000, 750]);
+  });
+  it('小圖不放大', () => {
+    expect(fitScale(400, 600, 1000)).toBe(1);
+  });
+  it('1:6 長收據寬度保留 350px 以上（以前只剩 167px）', () => {
+    const [w, h] = dims(1000, 6000, 1000);
+    expect(w).toBeGreaterThanOrEqual(350);
+    expect(h).toBeLessThanOrEqual(4000);
+  });
+  it('像素數不超過一張 3:4 照片的上限，最長邊不超過 4 倍', () => {
+    for (const [w, h] of [[1000, 2000], [1000, 6000], [800, 9000], [500, 20000]]) {
+      const [ow, oh] = dims(w, h, 1000);
+      expect(ow * oh).toBeLessThanOrEqual(750000 * 1.01);
+      expect(Math.max(ow, oh)).toBeLessThanOrEqual(4000);
+    }
+  });
+});
+
+describe('mergePageTexts（長收據分段掃描）', () => {
+  it('店名日期從第一頁、金額從最後一頁，接起來一起解析', () => {
+    const page1 = 'ドラッグストアABC\n2026年11月05日 14:32\nロキソニン 1,078円';
+    const page2 = '化粧水 3,300円\n乳液 2,970円';
+    const page3 = '10%対象 7,348円\n(内消費税等 668円)\n合計 ¥7,348';
+    const parsed = parseReceiptOCR(mergePageTexts([page1, page2, page3]));
+    expect(parsed).toMatchObject({
+      shop: 'ドラッグストアABC',
+      date: '2026-11-05',
+      rate: 10,
+      incl: 7348,
+    });
+    // 只讀第一頁（以前的行為）抓不到金額
+    expect(parseReceiptOCR(page1).incl).toBeUndefined();
+  });
+  it('辨識失敗的頁（null/空字串）直接跳過', () => {
+    expect(mergePageTexts(['a', null, '', '  ', 'b'])).toBe('a\nb');
+    expect(mergePageTexts([])).toBe('');
   });
 });

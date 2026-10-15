@@ -175,14 +175,34 @@ export function looksLikeReceiptText(text) {
 // 使用者長按縮圖還是能改，不是最終定案。
 export async function guessPhotoType(b64Src) {
   try {
-    const res = await ReceiptScanner.recognizeText({ image: b64Src });
-    const reconstructed = res?.lines?.length ? reconstructRowsFromLines(res.lines) : '';
-    const forParse = reconstructed || res?.text || '';
-    return looksLikeReceiptText(forParse) ? 'receipt' : 'item';
+    const { text } = await recognizePageText(b64Src);
+    return looksLikeReceiptText(text) ? 'receipt' : 'item';
   } catch (err) {
     // 辨識本身失敗（權限、原生端出錯）跟「真的不像收據」是不一樣的
     // 兩件事，沒有任何文字可以判斷時，寧可維持原本「當收據」的預設，
     // 不要因為辨識失敗就把一張可能真的是收據的照片誤標成物品照片。
     return 'receipt';
   }
+}
+
+// 一頁的辨識：原生 OCR → 有座標就用座標重組閱讀順序，沒有才退回原生
+// 端接好的 text。PhotoConfirmSheet（每一頁）跟 guessPhotoType 共用。
+// 失敗直接往外拋，由呼叫端決定「辨識失敗」要怎麼處理。
+export async function recognizePageText(b64Src) {
+  const res = await ReceiptScanner.recognizeText({ image: b64Src });
+  const reconstructed = res?.lines?.length ? reconstructRowsFromLines(res.lines) : '';
+  return { raw: res?.text || '', text: reconstructed || res?.text || '' };
+}
+
+// 長收據分好幾頁掃的時候，把每一頁的文字依掃描順序（由上往下）接成
+// 一份再丟給 parseReceiptOCR——不是每頁各自解析再挑一個。收據的結構
+// 本來就是「店名、日期在最上面，合計、稅額在最下面」，parseReceiptOCR
+// 的規則也剛好是「店名找第一個像店名的行、日期找第一個日期、金額找
+// 合計/対象」，接起來之後店名日期自然從第一頁抓、金額自然從最後幾頁
+// 抓。各頁分開解析反而麻煩：第一頁只有店名沒有金額、最後一頁只有金額
+// 但「店名」可能被誤抓成某個商品名，得另外寫一套合併規則。
+// 頁跟頁之間如果拍到重疊的同一段，重複的行不影響結果——每條規則都只
+// 取第一個比對到的。辨識失敗的頁（null/空字串）直接跳過。
+export function mergePageTexts(texts) {
+  return (texts || []).filter((x) => typeof x === 'string' && x.trim()).join('\n');
 }
