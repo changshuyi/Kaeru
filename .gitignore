@@ -34,3 +34,6 @@ playwright-report/
 android/keystore.properties
 android/*.keystore
 android/*.jks
+
+# 真實收據照片（測試 OCR 用，含卡號末碼、店員姓名等個資，不進版控）
+src/receipt/

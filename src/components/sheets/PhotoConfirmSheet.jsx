@@ -77,7 +77,10 @@ export function PhotoConfirmSheet({ t, src, fromScan, extraPages, onRetake, onUs
       let anyOk = false;
       for (const page of pages) {
         try {
-          const b64Src = page.startsWith('data:') ? page : await compressImageSrc(page, 1600, 0.85);
+          // 2400 不是 1600：整條長收據拍成一張照片時，收據只佔畫面中間
+          // 窄窄一條，1600 的時候字太小，實測連「合計」那一行都讀不到；
+          // 2400 就讀得到，辨識時間差不多。
+          const b64Src = page.startsWith('data:') ? page : await compressImageSrc(page, 2400, 0.85);
           const { raw, text } = await recognizePageText(b64Src);
           raws.push(raw);
           texts.push(text);
