@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { C } from '../../constants/theme.js';
 import { STAGES } from '../../constants/app.js';
 import { yen, netOf } from '../../lib/money.js';
-import { todayStr, isOldSystem } from '../../lib/date.js';
+import { todayStr } from '../../lib/date.js';
 import { inferRefundMethod } from '../../lib/trip.js';
 import { rotateImageSrc } from '../../lib/image.js';
 import { useBackClose, useDirtyBackGuard } from '../../hooks/useBackNav.js';
@@ -113,7 +113,6 @@ export function EditSheet({
     ? t.reached
     : `${t.notReached} · ${t.short} ¥${yen(5000 - net)}`;
   const thresholdColor = metThreshold ? C.sage : C.clay;
-  const oldSystem = isOldSystem({ date });
   // 預估實拿：手動覆寫的稅額優先，跟 lib/money.js 的 refundOfItem 同一套
   // 算法，只是這裡吃的是還沒存的表單值。
   const feeNum = Number(fee) || 0;
@@ -253,21 +252,6 @@ export function EditSheet({
             t={t}
           />
         </Field>
-        {oldSystem && (
-          <p
-            className="-mt-3"
-            style={{
-              backgroundColor: C.soft,
-              borderLeft: `3px solid ${C.blue}`,
-              color: C.ink,
-              fontSize: '12px',
-              lineHeight: 1.75,
-              padding: '10px 12px',
-            }}
-          >
-            {t.oldSystemEditHint}
-          </p>
-        )}
 
         <Field label={t.taxRate}>
           <div className="flex gap-1.5">
@@ -589,51 +573,49 @@ export function EditSheet({
             {t.refundHint}
           </p>
         </Field>
-        {!oldSystem && (
-          <Field label={t.fee}>
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="¥0"
-              value={fee === '' ? '' : `¥${yen(fee)}`}
-              onChange={(e) => setFee(e.target.value.replace(/[^\d]/g, ''))}
-              className="jp-underline w-full bg-transparent font-semibold tabular-nums outline-none"
-              style={{
-                border: 'none',
-                borderBottom: `1px solid ${C.line}`,
-                color: C.ink,
-                padding: '0 0 10px',
-                fontSize: '17px',
-              }}
-            />
-            <p className="mt-2" style={{ fontSize: '11.5px', color: C.sub, lineHeight: 1.7 }}>
-              {t.feeHint}
+        <Field label={t.fee}>
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="¥0"
+            value={fee === '' ? '' : `¥${yen(fee)}`}
+            onChange={(e) => setFee(e.target.value.replace(/[^\d]/g, ''))}
+            className="jp-underline w-full bg-transparent font-semibold tabular-nums outline-none"
+            style={{
+              border: 'none',
+              borderBottom: `1px solid ${C.line}`,
+              color: C.ink,
+              padding: '0 0 10px',
+              fontSize: '17px',
+            }}
+          />
+          <p className="mt-2" style={{ fontSize: '11.5px', color: C.sub, lineHeight: 1.7 }}>
+            {t.feeHint}
+          </p>
+          {feeNum > 0 && effectiveIncl > 0 && (
+            <p
+              className="mt-2 tabular-nums"
+              style={{ fontSize: '12.5px', color: C.ink, fontWeight: 600 }}
+            >
+              {t.feeNetLabel} ¥{yen(netRefund)}
             </p>
-            {feeNum > 0 && effectiveIncl > 0 && (
-              <p
-                className="mt-2 tabular-nums"
-                style={{ fontSize: '12.5px', color: C.ink, fontWeight: 600 }}
-              >
-                {t.feeNetLabel} ¥{yen(netRefund)}
-              </p>
-            )}
-            {feeNum > 0 && effectiveIncl > 0 && feeHeavyNow && (
-              <p
-                className="mt-2"
-                style={{
-                  backgroundColor: C.soft,
-                  borderLeft: `3px solid ${C.clay}`,
-                  color: C.clayInk,
-                  fontSize: '12px',
-                  lineHeight: 1.7,
-                  padding: '10px 12px',
-                }}
-              >
-                {t.feeHeavyWarn}
-              </p>
-            )}
-          </Field>
-        )}
+          )}
+          {feeNum > 0 && effectiveIncl > 0 && feeHeavyNow && (
+            <p
+              className="mt-2"
+              style={{
+                backgroundColor: C.soft,
+                borderLeft: `3px solid ${C.clay}`,
+                color: C.clayInk,
+                fontSize: '12px',
+                lineHeight: 1.7,
+                padding: '10px 12px',
+              }}
+            >
+              {t.feeHeavyWarn}
+            </p>
+          )}
+        </Field>
         <Toggle
           checked={unpacked}
           onChange={setUnpacked}

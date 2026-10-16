@@ -7,7 +7,7 @@ import {
   refundOfItem,
   feeHeavy,
 } from './lib/money.js';
-import { daysLeft, isPendingInfo, isExpiredUnclaimed, isOldSystem } from './lib/date.js';
+import { daysLeft, isPendingInfo, isExpiredUnclaimed } from './lib/date.js';
 import { inferRefundMethod } from './lib/trip.js';
 import {
   parseReceiptOCR,
@@ -86,15 +86,7 @@ describe('isExpiredUnclaimed（超過期限又沒退成的收據）', () => {
     expect(isExpiredUnclaimed({ status: 'purchased', consumed: true, date: '2000-01-01' })).toBe(false);
   });
   it('還卡在待處理、日期超過 90 天 → 算過期沒救', () => {
-    // 新制 11/1 才上路，要有「超過 90 天的新制收據」得把時間撥到明年；
-    // 2000-01-01 這種日期現在會被當成舊制，不會過期。
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2027-03-01T12:00:00'));
-    try {
-      expect(isExpiredUnclaimed({ status: 'purchased', date: '2026-11-15' })).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(isExpiredUnclaimed({ status: 'purchased', date: '2000-01-01' })).toBe(true);
   });
   it('還沒到期的不算', () => {
     const future = new Date();
@@ -215,26 +207,6 @@ describe('reconstructRowsFromLines（座標重組成閱讀順序）', () => {
     expect(reconstructRowsFromLines([])).toBe('');
     expect(reconstructRowsFromLines(null)).toBe('');
     expect(reconstructRowsFromLines([{ text: '  ' }])).toBe('');
-  });
-});
-
-describe('isOldSystem（新舊制看購買日期）', () => {
-  it('10/31 買的是舊制', () => {
-    expect(isOldSystem({ date: '2026-10-31' })).toBe(true);
-  });
-  it('11/1 起買的是新制', () => {
-    expect(isOldSystem({ date: '2026-11-01' })).toBe(false);
-    expect(isOldSystem({ date: '2027-01-15' })).toBe(false);
-  });
-  it('沒日期或格式不對當新制，不猜成比較特殊的那一種', () => {
-    expect(isOldSystem({ date: '' })).toBe(false);
-    expect(isOldSystem({ date: 'not-a-date' })).toBe(false);
-    expect(isOldSystem(null)).toBe(false);
-  });
-  it('舊制收據就算超過 90 天也不算「過期沒退到」', () => {
-    expect(
-      isExpiredUnclaimed({ date: '2026-01-01', status: 'purchased', consumed: false }),
-    ).toBe(false);
   });
 });
 

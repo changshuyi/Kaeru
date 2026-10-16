@@ -1,12 +1,7 @@
 import { useState } from 'react';
 import { C } from '../../constants/theme.js';
 import { yen } from '../../lib/money.js';
-import {
-  daysLeft,
-  isPendingInfo,
-  isExpiredUnclaimed,
-  isOldSystem,
-} from '../../lib/date.js';
+import { daysLeft, isPendingInfo, isExpiredUnclaimed } from '../../lib/date.js';
 import { Badge } from '../ui/Badge.jsx';
 import { PendingReceiptCard } from './PendingReceiptCard.jsx';
 import { ReceiptCard } from './ReceiptCard.jsx';
@@ -55,8 +50,7 @@ export function ListView({
   const match = (it) => {
     if (filter === 'all') return true;
     if (filter === 'done') return it.status === 'refunded';
-    if (filter === 'todo')
-      return it.status !== 'refunded' && !it.consumed && !isOldSystem(it);
+    if (filter === 'todo') return it.status !== 'refunded' && !it.consumed;
     return true;
   };
 
@@ -88,11 +82,7 @@ export function ListView({
   const deadlinePendingCount = hasDeparture
     ? 0
     : items.filter(
-        (it) =>
-          !isPendingInfo(it) &&
-          !it.consumed &&
-          !isExpiredUnclaimed(it) &&
-          !isOldSystem(it),
+        (it) => !isPendingInfo(it) && !it.consumed && !isExpiredUnclaimed(it),
       ).length;
 
   return (
@@ -195,16 +185,12 @@ export function ListView({
             // 「已過期」但裡面的卡片（例如已經退款的那張）卻正常顯示，
             // 兩邊會自相矛盾。
             const groupDays = daysLeft(date);
-            // 舊制那組結帳就免稅了，門檻、期限都已經是店家當場處理完的
-            // 事，表頭不顯示「還差多少」或「已過期」，只標舊制。
-            const groupOld = isOldSystem({ date });
             const groupExpired =
               groupDays !== null &&
               groupDays < 0 &&
               g.arr.some(
                 (it) =>
                   !it.consumed &&
-                  !isOldSystem(it) &&
                   it.status !== 'refunded' &&
                   it.status !== 'verified',
               );
@@ -213,7 +199,7 @@ export function ListView({
                 <div
                   className="flex items-end justify-between gap-3 pb-2"
                   style={{
-                    borderBottom: `1px solid ${groupOld || (g.ok && !groupExpired) ? C.ink : C.clay}`,
+                    borderBottom: `1px solid ${g.ok && !groupExpired ? C.ink : C.clay}`,
                   }}
                 >
                   <div className="min-w-0">
@@ -238,9 +224,7 @@ export function ListView({
                       {t.netTotal} ¥{yen(g.net)}
                     </p>
                     <span className="mt-1 inline-block">
-                      {groupOld ? (
-                        <Badge tone="outline">{t.oldSystemBadge}</Badge>
-                      ) : groupExpired ? (
+                      {groupExpired ? (
                         <Badge tone="clay">{t.expiredBadge}</Badge>
                       ) : g.ok ? (
                         <Badge tone="sage">{t.reached}</Badge>

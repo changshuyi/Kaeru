@@ -191,13 +191,6 @@ export const T = {
     statusPending: '張待處理',
     statusRefunded: '張已退款',
     statusDead: '張失效',
-    statusOldSystem: '張舊制',
-    oldSystemBadge: '舊制・結帳已免稅',
-    oldSystemNote:
-      '10/31 以前買的走舊制：結帳時就已經是免稅價，出境不用辦海關確認，也不會再退一次錢。收據跟商品照樣留著，以防海關抽查。',
-    oldSystemEditHint:
-      '這個日期在 2026/11/1 新制上路之前，走舊制：結帳時應該已經是免稅價。這張會留在清單裡，但不算進待退金額和查驗清單。',
-    oldSystemNoRefund: '不用再退',
     fee: '退款手續費（選填）',
     feeHint: '有些店家或退款業者每筆會扣固定手續費（例如 ¥320）。結帳時問店員，填了會從預估退款裡扣掉。',
     feeShort: '手續費',
@@ -736,13 +729,6 @@ export const T = {
     statusPending: '件 未処理',
     statusRefunded: '件 返金済み',
     statusDead: '件 失効',
-    statusOldSystem: '件 旧制度',
-    oldSystemBadge: '旧制度・会計時に免税済み',
-    oldSystemNote:
-      '10/31 以前の購入は旧制度です。会計時にすでに免税価格になっているため、出国時の税関確認も追加の返金もありません。抜き打ち確認に備えてレシートと商品は保管してください。',
-    oldSystemEditHint:
-      'この日付は 2026/11/1 の新制度開始前のため旧制度です。会計時に免税価格になっているはずです。一覧には残りますが、返金見込額と確認リストには含まれません。',
-    oldSystemNoRefund: '返金なし',
     fee: '返金手数料（任意）',
     feeHint: '店舗や返金事業者によっては 1 件ごとに固定の手数料（例：¥320）がかかります。会計時に確認し、入力すると返金見込額から差し引きます。',
     feeShort: '手数料',

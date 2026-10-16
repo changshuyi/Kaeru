@@ -11,8 +11,6 @@ import fs from 'node:fs';
 const OUT_DIR = 'assets/play-store-screenshots';
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
-// 日期要在 2026-11-01 之後——之前的會被當成舊制（結帳就免稅），收據卡
-// 換成精簡版、不進查驗清單，截出來就不是新制的畫面了。
 const trip = { id: 't1', name: '大阪五日遊', departure: '2026-11-13T18:30', airport: 'KIX' };
 
 const items = [

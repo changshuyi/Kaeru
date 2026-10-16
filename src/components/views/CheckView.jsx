@@ -1,25 +1,19 @@
 import { C } from '../../constants/theme.js';
 import { yen } from '../../lib/money.js';
-import {
-  groupKey,
-  isPendingInfo,
-  isExpiredUnclaimed,
-  isOldSystem,
-} from '../../lib/date.js';
+import { groupKey, isPendingInfo, isExpiredUnclaimed } from '../../lib/date.js';
 
 export function CheckView({ t, items, groups, taxOf, onVerifyAll, onVerifyOne }) {
   const eligible = items.filter((it) => {
     const g = groups.get(groupKey(it));
     // 資料待補（店名還沒補上）跟已超過 90 天沒退到的收據，不進查驗
     // 清單——待補的連店名都打不出來，沒辦法在機場核對；已過期的已經
-    // 不用查驗了。舊制（10/31 以前買的）結帳就免稅，出境不用辦確認。
+    // 不用查驗了。
     return (
       g &&
       g.ok &&
       !it.consumed &&
       !isPendingInfo(it) &&
-      !isExpiredUnclaimed(it) &&
-      !isOldSystem(it)
+      !isExpiredUnclaimed(it)
     );
   });
   const todo = eligible
