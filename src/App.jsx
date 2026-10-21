@@ -671,6 +671,7 @@ export default function App() {
            - overflow-x:hidden 擋掉右側因為版面沒縮小而多出來的水平捲動空間
            - margin-bottom 用負值把「視覺縮小後」跟「版面裡實際佔用高度」的
              差額拉掉，不然畫面下面會留一截可以往下捲、卻是空的區域 */
+        .kaeru-main{min-height:100dvh}
         @media (max-width:389.98px){
           html,body{overflow-x:hidden}
           .kaeru-app{
@@ -679,6 +680,13 @@ export default function App() {
             transform-origin:top left;
             transform:scale(var(--k-scale));
             margin-bottom:calc(-100dvh * (1 - var(--k-scale)));
+          }
+          /* 主畫面內容不滿一屏時要撐滿白底，不然下面會露出灰色外層。
+             縮放後視覺高度是 min-height × k，所以 min-height 要除回 k；
+             負 margin 也改成照這個 min-height 算，短頁面剛好一屏、不多出捲動 */
+          .kaeru-main{
+            min-height:calc(100dvh / var(--k-scale));
+            margin-bottom:calc(-100dvh * (1 / var(--k-scale) - 1));
           }
         }
         .kaeru-pad{padding-left:26px;padding-right:26px}
@@ -693,7 +701,7 @@ export default function App() {
         .no-scrollbar{scrollbar-width:none;-ms-overflow-style:none}
         .no-scrollbar::-webkit-scrollbar{display:none}`}</style>
       <div
-        className="kaeru-app"
+        className="kaeru-app kaeru-main"
         style={{
           backgroundColor: C.page,
           opacity: tripSheet || endedSheetOpen ? 0.35 : 1,
