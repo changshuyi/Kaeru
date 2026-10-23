@@ -26,6 +26,7 @@ import { CheckView } from './components/views/CheckView.jsx';
 import { FaqView } from './components/views/FaqView.jsx';
 import { Scenario } from './components/views/Scenario.jsx';
 import { SettingsView } from './components/views/SettingsView.jsx';
+import { IntroScreen } from './components/views/IntroScreen.jsx';
 import { DataManageSheet } from './components/sheets/DataManageSheet.jsx';
 import { ExportOptionsSheet } from './components/sheets/ExportOptionsSheet.jsx';
 import { DeleteConfirmSheet } from './components/sheets/DeleteConfirmSheet.jsx';
@@ -51,6 +52,9 @@ export default function App() {
     // 舊資料：舊使用者升級上來，settings 裡本來就沒有這個欄位，跟
     // 全新安裝一樣會先看過一次，不會因為是舊資料就被跳過。
     photoPermissionPrimed: false,
+    // 首次開啟介紹（IntroScreen）看過沒。全新安裝是 false；舊使用者
+    // 升級上來，載入時看手上有沒有收據決定，見下面讀檔那段。
+    introSeen: false,
   });
   const [trips, setTrips] = useState([]);
   const [activeId, setActiveId] = useState(null);
@@ -181,6 +185,10 @@ export default function App() {
           setActiveId(active);
           setItems(migrated);
           delete savedSettings.departure;
+          // 舊資料沒有 introSeen：已經記過收據的人顯然會用了，不用再
+          // 看一次介紹；還沒記過任何一張的，跟全新安裝一樣給看一次。
+          if (savedSettings.introSeen === undefined)
+            savedSettings.introSeen = list.length > 0;
           setSettings((s) => ({ ...s, ...savedSettings }));
           const map = {};
           for (const it of list.filter((i) => i.hasPhoto)) {
@@ -1339,6 +1347,15 @@ export default function App() {
           onPhotoPermissionPrimed={() =>
             setSettings((s) => ({ ...s, photoPermissionPrimed: true }))
           }
+        />
+      )}
+
+      {!settings.introSeen && (
+        <IntroScreen
+          t={t}
+          lang={lang}
+          onLang={(k) => setSettings((s) => ({ ...s, lang: k }))}
+          onDone={() => setSettings((s) => ({ ...s, introSeen: true }))}
         />
       )}
     </div>
