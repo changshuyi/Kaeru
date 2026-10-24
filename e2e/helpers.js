@@ -14,19 +14,28 @@ export const TINY_PNG =
 // 被悄悄蓋掉）。
 export async function seedTrip(
   page,
-  { items = [], trips = [], activeId = null, photos = {}, photoPermissionPrimed = true } = {},
+  {
+    items = [],
+    trips = [],
+    activeId = null,
+    photos = {},
+    photoPermissionPrimed = true,
+    introSeen = true,
+  } = {},
 ) {
+  // introSeen 預設 true 也是同一個道理：首次開啟介紹會整屏蓋住 App，
+  // 只有測介紹畫面本身（e2e/intro.spec.js）才傳 false。
   // photoPermissionPrimed 預設 true——大部分測試在意的是「拍照/選圖
   // 之後」的行為，不是權限說明畫面本身，不用每個 spec 都先點過一次
   // 「允許」才能往下測。真的要測權限說明畫面的（e2e/permission-
   // prime.spec.js），才需要顯式傳 false。
   await page.addInitScript(
-    ({ items, trips, activeId, photos, photoPermissionPrimed }) => {
+    ({ items, trips, activeId, photos, photoPermissionPrimed, introSeen }) => {
       localStorage.setItem(
         'kaeru:jptax:v2',
         JSON.stringify({
           items,
-          settings: { rate: 0.21, lang: 'zh', photoPermissionPrimed },
+          settings: { rate: 0.21, lang: 'zh', photoPermissionPrimed, introSeen },
           trips,
           activeId,
         }),
@@ -35,6 +44,6 @@ export async function seedTrip(
         localStorage.setItem(`kaeru:jptax:photo:${id}`, JSON.stringify(list));
       }
     },
-    { items, trips, activeId, photos, photoPermissionPrimed },
+    { items, trips, activeId, photos, photoPermissionPrimed, introSeen },
   );
 }

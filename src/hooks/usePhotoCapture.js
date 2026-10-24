@@ -17,7 +17,7 @@ export function usePhotoCapture({
 }) {
   const [photoPromptOpen, setPhotoPromptOpen] = useState(false);
   const [photoDenied, setPhotoDenied] = useState(null); // null | 'camera' | 'photos'
-  const [confirmPhoto, setConfirmPhoto] = useState(null); // { src, fromScan } | null
+  const [confirmPhoto, setConfirmPhoto] = useState(null); // { src, fromScan, extraPages? } | null
   // 第一次要用相機/相簿前的權限說明畫面（見 PermissionPrimeSheet）——
   // 只在 permissionPrimed 還是 false 時擋在 pickPhoto 前面一次，接受
   // 或拒絕都會讓呼叫端把 permissionPrimed 存成 true，之後不會再擋。
@@ -234,7 +234,11 @@ export function usePhotoCapture({
       const images = res?.images || [];
       if (!images.length) return;
       const [first, ...rest] = images;
-      setConfirmPhoto({ src: first, fromScan: true });
+      // 第 2 頁以後也交給確認畫面一起跑 OCR（extraPages）——長收據分段
+      // 掃的時候，合計／稅額在最後幾頁，只讀第一頁會抓不到金額。注意
+      // 這裡給的是全部頁，不受下面照片額度裁掉的影響：額度只限制存幾
+      // 張照片，不該限制讀得到哪些文字。
+      setConfirmPhoto({ src: first, fromScan: true, extraPages: rest });
       // remaining 是「開始掃描那一刻」還剩幾張額度，第一頁留給確認/
       // 裁切畫面用，其他頁最多再補 remaining-1 張——如果那時候額度已經
       // 是 0（滿額才點掃描），remaining-1 會是負數，array.slice(0,-1)

@@ -12,7 +12,7 @@ import {
 import { C, FONT } from './constants/theme.js';
 import { MAIN_KEY } from './constants/app.js';
 import { T } from './i18n/translations.js';
-import { netOfItem } from './lib/money.js';
+import { netOfItem, refundOfItem } from './lib/money.js';
 import { groupKey, daysLeft, isPendingInfo, isExpiredUnclaimed } from './lib/date.js';
 import { genTripId } from './lib/trip.js';
 import { useBackClose, deferOpen, kaeruBackDepth } from './hooks/useBackNav.js';
@@ -26,6 +26,7 @@ import { CheckView } from './components/views/CheckView.jsx';
 import { FaqView } from './components/views/FaqView.jsx';
 import { Scenario } from './components/views/Scenario.jsx';
 import { SettingsView } from './components/views/SettingsView.jsx';
+import { IntroScreen } from './components/views/IntroScreen.jsx';
 import { DataManageSheet } from './components/sheets/DataManageSheet.jsx';
 import { ExportOptionsSheet } from './components/sheets/ExportOptionsSheet.jsx';
 import { DeleteConfirmSheet } from './components/sheets/DeleteConfirmSheet.jsx';
@@ -51,6 +52,9 @@ export default function App() {
     // 舊資料：舊使用者升級上來，settings 裡本來就沒有這個欄位，跟
     // 全新安裝一樣會先看過一次，不會因為是舊資料就被跳過。
     photoPermissionPrimed: false,
+    // 首次開啟介紹（IntroScreen）看過沒。全新安裝是 false；舊使用者
+    // 升級上來，載入時看手上有沒有收據決定，見下面讀檔那段。
+    introSeen: false,
   });
   const [trips, setTrips] = useState([]);
   const [activeId, setActiveId] = useState(null);
@@ -181,6 +185,10 @@ export default function App() {
           setActiveId(active);
           setItems(migrated);
           delete savedSettings.departure;
+          // 舊資料沒有 introSeen：已經記過收據的人顯然會用了，不用再
+          // 看一次介紹；還沒記過任何一張的，跟全新安裝一樣給看一次。
+          if (savedSettings.introSeen === undefined)
+            savedSettings.introSeen = list.length > 0;
           setSettings((s) => ({ ...s, ...savedSettings }));
           const map = {};
           for (const it of list.filter((i) => i.hasPhoto)) {
@@ -257,21 +265,10 @@ export default function App() {
     return m;
   }, [photos]);
 
+  // 畫面上所有「能退多少」的數字都吃這個：稅額（含手動覆寫、夾上限）
+  // 扣掉退款手續費之後的預估實拿，見 lib/money.js。
   function taxOf(it) {
-    // 這張收據理論上能退的稅額上限：含稅金額－稅抜金額。
-    const naiveTax = (it.incl || 0) - netOfItem(it);
-    if (
-      it.taxOverride !== null &&
-      it.taxOverride !== undefined &&
-      it.taxOverride !== ''
-    ) {
-      // #12 修正：手動輸入的退稅金額原本沒有跟這個理論上限比對，打錯
-      // 一個位數（例如多打一個 0）不會被擋下來，會直接算進可退稅總額、
-      // 查驗頁總額等所有地方。夾在 [0, naiveTax] 之間。
-      const override = Number(it.taxOverride) || 0;
-      return Math.min(Math.max(0, override), naiveTax);
-    }
-    return naiveTax;
+    return refundOfItem(it);
   }
 
   function deleteTrip(id) {
@@ -682,6 +679,7 @@ export default function App() {
            - overflow-x:hidden 擋掉右側因為版面沒縮小而多出來的水平捲動空間
            - margin-bottom 用負值把「視覺縮小後」跟「版面裡實際佔用高度」的
              差額拉掉，不然畫面下面會留一截可以往下捲、卻是空的區域 */
+        .kaeru-main{min-height:100dvh}
         @media (max-width:389.98px){
           html,body{overflow-x:hidden}
           .kaeru-app{
@@ -690,6 +688,13 @@ export default function App() {
             transform-origin:top left;
             transform:scale(var(--k-scale));
             margin-bottom:calc(-100dvh * (1 - var(--k-scale)));
+          }
+          /* 主畫面內容不滿一屏時要撐滿白底，不然下面會露出灰色外層。
+             縮放後視覺高度是 min-height × k，所以 min-height 要除回 k；
+             負 margin 也改成照這個 min-height 算，短頁面剛好一屏、不多出捲動 */
+          .kaeru-main{
+            min-height:calc(100dvh / var(--k-scale));
+            margin-bottom:calc(-100dvh * (1 / var(--k-scale) - 1));
           }
         }
         .kaeru-pad{padding-left:26px;padding-right:26px}
@@ -704,7 +709,7 @@ export default function App() {
         .no-scrollbar{scrollbar-width:none;-ms-overflow-style:none}
         .no-scrollbar::-webkit-scrollbar{display:none}`}</style>
       <div
-        className="kaeru-app"
+        className="kaeru-app kaeru-main"
         style={{
           backgroundColor: C.page,
           opacity: tripSheet || endedSheetOpen ? 0.35 : 1,
@@ -1342,6 +1347,15 @@ export default function App() {
           onPhotoPermissionPrimed={() =>
             setSettings((s) => ({ ...s, photoPermissionPrimed: true }))
           }
+        />
+      )}
+
+      {!settings.introSeen && (
+        <IntroScreen
+          t={t}
+          lang={lang}
+          onLang={(k) => setSettings((s) => ({ ...s, lang: k }))}
+          onDone={() => setSettings((s) => ({ ...s, introSeen: true }))}
         />
       )}
     </div>

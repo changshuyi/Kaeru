@@ -1,17 +1,35 @@
-import { describe, it, expect } from 'vitest';
-import { netOf, netOfItem } from './lib/money.js';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  netOf,
+  netOfItem,
+  taxOfItem,
+  feeOf,
+  refundOfItem,
+  feeHeavy,
+} from './lib/money.js';
 import { daysLeft, isPendingInfo, isExpiredUnclaimed } from './lib/date.js';
 import { inferRefundMethod } from './lib/trip.js';
 import {
   parseReceiptOCR,
   looksLikeReceiptText,
   reconstructRowsFromLines,
+  mergePageTexts,
 } from './lib/ocr.js';
+import { fitScale } from './lib/image.js';
 
 describe('netOf / netOfItem（稅抜金額計算）', () => {
   it('用捨去、不是四捨五入——貼近店家收銀機的算法', () => {
     // 1000 / 1.1 = 909.0909...，捨去應該是 909，不是 910
     expect(netOf(1000, 10)).toBe(909);
+  });
+  it('整除的金額不能被浮點誤差少算 1 円（33000 / 1.1 = 29999.999…）', () => {
+    expect(netOf(33000, 10)).toBe(30000);
+    expect(netOf(5500, 10)).toBe(5000);
+    expect(netOf(5400, 8)).toBe(5000);
+    // 掃一輪：稅抜 n 是 10 的倍數時含稅剛好是整數，換回來一定要拿回 n
+    for (let n = 10; n <= 300000; n += 10) {
+      if (netOf((n / 10) * 11, 10) !== n) throw new Error(`netOf 錯在 ${n}`);
+    }
   });
   it('沒給稅率預設當 10%——跟明確傳 10 的結果要一樣', () => {
     expect(netOf(1100, undefined)).toBe(netOf(1100, 10));
@@ -189,5 +207,173 @@ describe('reconstructRowsFromLines（座標重組成閱讀順序）', () => {
     expect(reconstructRowsFromLines([])).toBe('');
     expect(reconstructRowsFromLines(null)).toBe('');
     expect(reconstructRowsFromLines([{ text: '  ' }])).toBe('');
+  });
+});
+
+describe('手續費（taxOfItem / refundOfItem / feeHeavy）', () => {
+  const base = { incl: 5500, rate: 10 }; // 稅抜 5000、稅 500
+  it('沒填手續費，實拿等於稅額', () => {
+    expect(taxOfItem(base)).toBe(500);
+    expect(refundOfItem(base)).toBe(500);
+  });
+  it('影片的例子：¥5,500 扣 ¥320 只剩 ¥180', () => {
+    expect(refundOfItem({ ...base, fee: 320 })).toBe(180);
+  });
+  it('手續費比稅額高，實拿是 0 不是負數', () => {
+    expect(refundOfItem({ ...base, fee: 800 })).toBe(0);
+  });
+  it('手動覆寫的稅額也會先夾在理論上限再扣手續費', () => {
+    expect(refundOfItem({ ...base, taxOverride: 9999, fee: 100 })).toBe(400);
+  });
+  it('負數或亂填的手續費當 0', () => {
+    expect(feeOf({ fee: -5 })).toBe(0);
+    expect(feeOf({ fee: 'abc' })).toBe(0);
+    expect(feeOf({})).toBe(0);
+  });
+  it('手續費吃掉一半以上才算偏高', () => {
+    expect(feeHeavy({ ...base, fee: 320 })).toBe(true);
+    expect(feeHeavy({ ...base, fee: 250 })).toBe(true);
+    expect(feeHeavy({ ...base, fee: 249 })).toBe(false);
+    expect(feeHeavy(base)).toBe(false);
+  });
+});
+
+describe('fitScale（長收據縮圖不能壓到看不清楚）', () => {
+  const dims = (w, h, max) => {
+    const k = fitScale(w, h, max);
+    return [Math.round(w * k), Math.round(h * k)];
+  };
+  it('一般 3:4 手機照片跟以前一樣：最長邊 1000', () => {
+    expect(dims(3000, 4000, 1000)).toEqual([750, 1000]);
+    expect(dims(4000, 3000, 1000)).toEqual([1000, 750]);
+  });
+  it('小圖不放大', () => {
+    expect(fitScale(400, 600, 1000)).toBe(1);
+  });
+  it('1:6 長收據寬度保留 350px 以上（以前只剩 167px）', () => {
+    const [w, h] = dims(1000, 6000, 1000);
+    expect(w).toBeGreaterThanOrEqual(350);
+    expect(h).toBeLessThanOrEqual(4000);
+  });
+  it('像素數不超過一張 3:4 照片的上限，最長邊不超過 4 倍', () => {
+    for (const [w, h] of [[1000, 2000], [1000, 6000], [800, 9000], [500, 20000]]) {
+      const [ow, oh] = dims(w, h, 1000);
+      expect(ow * oh).toBeLessThanOrEqual(750000 * 1.01);
+      expect(Math.max(ow, oh)).toBeLessThanOrEqual(4000);
+    }
+  });
+});
+
+describe('mergePageTexts（長收據分段掃描）', () => {
+  it('店名日期從第一頁、金額從最後一頁，接起來一起解析', () => {
+    const page1 = 'ドラッグストアABC\n2026年11月05日 14:32\nロキソニン 1,078円';
+    const page2 = '化粧水 3,300円\n乳液 2,970円';
+    const page3 = '10%対象 7,348円\n(内消費税等 668円)\n合計 ¥7,348';
+    const parsed = parseReceiptOCR(mergePageTexts([page1, page2, page3]));
+    expect(parsed).toMatchObject({
+      shop: 'ドラッグストアABC',
+      date: '2026-11-05',
+      rate: 10,
+      incl: 7348,
+    });
+    // 只讀第一頁（以前的行為）抓不到金額
+    expect(parseReceiptOCR(page1).incl).toBeUndefined();
+  });
+  it('辨識失敗的頁（null/空字串）直接跳過', () => {
+    expect(mergePageTexts(['a', null, '', '  ', 'b'])).toBe('a\nb');
+    expect(mergePageTexts([])).toBe('');
+  });
+});
+
+// 下面的文字都是真實收據（2026/9～10 福岡、佐賀、熊本）拍照後 OCR 讀出來的
+// 樣子，只留跟解析有關的幾行，連 OCR 讀錯的字也照原樣保留。
+describe('parseReceiptOCR：真實收據格式', () => {
+  it('「(10%対象 ¥1,782 内消費税 ¥162)」¥ 前綴、混合稅率', () => {
+    const text = [
+      '中川政七商店 アミュプラサ博多店',
+      '2026-10-02 18:05:25',
+      '合計 ¥4,546',
+      '(10%対象¥1,782内消費税 ¥162)',
+      '(8%対象 ¥2,764 内消費税 ¥204)',
+    ].join('\n');
+    expect(parseReceiptOCR(text)).toMatchObject({ rate: 'mixed', incl8: 2764, incl10: 1782 });
+  });
+  it('混合稅率其中一筆被 OCR 讀錯（¥2,764→¥2,104），用合計跟同一行的內含稅修回來', () => {
+    const text = '合計 ¥4,546\n(10%対象¥1,782内消費税 ¥162)\n(8%対象 ¥2,104 内消費税 ¥204)';
+    expect(parseReceiptOCR(text)).toMatchObject({ incl8: 2764, incl10: 1782 });
+  });
+  it('外税：「外税対象額 10.00% ¥8,900」是稅抜，要換成含稅', () => {
+    const text = '小 計 ¥8,900\n外税対象額 10.00% ¥8,900\n外税 10.00% ¥890\n合計 ¥9,790';
+    expect(parseReceiptOCR(text)).toMatchObject({ rate: 10, incl: 9790 });
+  });
+  it('「(税合計 ¥92)」是稅額，不能當成合計', () => {
+    const text = '小計 ¥1,150\n(外税8% 対象 ¥1,150)\n外税8% ¥92\n(税合計 ¥92)\n合計 ¥1,242';
+    expect(parseReceiptOCR(text)).toMatchObject({ rate: 8, incl: 1242 });
+  });
+  it('「8%内税対象」「合 計」中間有空白、只剩「合」', () => {
+    const text = '(8%内税対象 ¥1,426)\n(8%内税額 ¥105)\n(10%内税対象 ¥50)\n(10%内税額 ¥4)\n合 ¥1,476';
+    expect(parseReceiptOCR(text)).toMatchObject({ rate: 'mixed', incl8: 1426, incl10: 50 });
+  });
+  it('「軽減税率対象(8%) ¥213」印的其實是稅額：單一稅率時以合計為準', () => {
+    const text = '小計 ¥2,673\nA軽減税率対象(8%)(8%) ¥213\n合計 ¥2,886';
+    expect(parseReceiptOCR(text)).toMatchObject({ rate: 8, incl: 2886 });
+  });
+  it('歪斜照片把合計錯配到旁邊的稅額，対象金額比較大就用対象', () => {
+    const text = '内税対象額 10.00% ¥19,910\n含計 ¥1,810\n¥19,910';
+    expect(parseReceiptOCR(text)).toMatchObject({ rate: 10, incl: 19910 });
+  });
+  it('「¥50.566」逗號被讀成句點；同一行有殘字金額時取最大的', () => {
+    expect(parseReceiptOCR('合計 ¥50. ¥50.566').incl).toBe(50566);
+  });
+  it('長收據連「合計」都沒讀到：改用付款行重複出現的金額', () => {
+    const text = '¥50,566\n(内、消費税等 ¥50.\nクレジット(他クレ) ¥50,566\n今回お預り額 ¥50,566\n額 ¥50,566';
+    expect(parseReceiptOCR(text)).toMatchObject({ rate: 10, incl: 50566 });
+  });
+  it('只有 8% 的稅額行、沒有 10% → 稅率猜 8%；註腳「軽減税率(8%)適用商品」不算', () => {
+    expect(parseReceiptOCR('合計 ¥15,650\n(内消費税等 8% ¥1,159)').rate).toBe(8);
+    expect(parseReceiptOCR('合計 ¥2,469\n※は軽減税率(8%)適用商品').rate).toBe(10);
+  });
+  it('日期：年月日之間有空白、月日不合理的跳過、年份讀錯的配最近的年份', () => {
+    expect(parseReceiptOCR('2026年10月 1日(木) 15:03').date).toBe('2026-10-01');
+    expect(parseReceiptOCR('2026/10/0\n2026年10月02日(金)12:25').date).toBe('2026-10-02');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-16T12:00:00'));
+    try {
+      expect(parseReceiptOCR('2036年 9月27日(日)15:03').date).toBe('2026-09-27');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('店名：跳過 Logo 殘字、領収書、鍵盤雜訊，優先帶「店」的行，品牌跟分店接起來', () => {
+    expect(parseReceiptOCR('七\n中川政七商店 アミュプラサ博多店\nTEL:092-409-6807').shop).toBe(
+      '中川政七商店 アミュプラサ博多店',
+    );
+    expect(parseReceiptOCR('3COINS+plus\nキャナルシティ博多店 №3070\nTEL 092-402-7767\n領').shop).toBe(
+      '3COINS+plus キャナルシティ博多店',
+    );
+    expect(parseReceiptOCR('FIO P11 P12\nK L DACOMECCA\nDACOMECCA 092-477-1050').shop).toBe('DACOMECCA');
+    expect(parseReceiptOCR('EXCELSIOR\nCAFFE\n天神渡辺通り4丁目店\n092-260-3556').shop).toBe('EXCELSIOR CAFFE');
+    expect(parseReceiptOCR('ONE PIECE\n領収書\nONE PIECE 麦わらストア熊本店').shop).toBe('ONE PIECE 麦わらストア熊本店');
+  });
+});
+
+describe('reconstructRowsFromLines：轉 90 度拍的收據', () => {
+  // 收據上方朝右：每一行在照片裡是一條直的，下一行在左邊
+  const rotated = [
+    { text: 'TULLY\'S COFFEE', left: 0.9, right: 0.93, top: 0.1, bottom: 0.4 },
+    { text: '2026年09月30日(水)', left: 0.8, right: 0.83, top: 0.1, bottom: 0.45 },
+    { text: '(8%対象', left: 0.7, right: 0.73, top: 0.1, bottom: 0.25 },
+    { text: '¥510)', left: 0.7, right: 0.73, top: 0.7, bottom: 0.8 },
+    { text: '合計', left: 0.6, right: 0.63, top: 0.1, bottom: 0.2 },
+    { text: '¥510', left: 0.6, right: 0.63, top: 0.7, bottom: 0.8 },
+  ];
+  it('轉回正確方向、同一行的標籤跟金額接在一起', () => {
+    expect(reconstructRowsFromLines(rotated)).toBe(
+      "TULLY'S COFFEE\n2026年09月30日(水)\n(8%対象 ¥510)\n合計 ¥510",
+    );
+  });
+  it('往另一個方向轉（上方朝左）也一樣', () => {
+    const ccw = rotated.map((l) => ({ ...l, left: 1 - l.right, right: 1 - l.left, top: 1 - l.bottom, bottom: 1 - l.top }));
+    expect(reconstructRowsFromLines(ccw)).toBe("TULLY'S COFFEE\n2026年09月30日(水)\n(8%対象 ¥510)\n合計 ¥510");
   });
 });

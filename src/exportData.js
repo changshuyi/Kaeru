@@ -80,6 +80,7 @@ export function buildCsv(items, labels) {
       it.date || '',
       it.incl > 0 ? String(it.incl) : '',
       it.rate === 'mixed' ? mixedRateLabel : it.rate ? `${it.rate}%` : '',
+      it.fee > 0 ? String(it.fee) : '',
       refundLabelFor(it.refundMethod),
       stageLabelFor(it.status),
       it.note || '',

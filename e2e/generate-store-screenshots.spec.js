@@ -11,13 +11,20 @@ import fs from 'node:fs';
 const OUT_DIR = 'assets/play-store-screenshots';
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
-const trip = { id: 't1', name: '大阪五日遊', departure: '2026-09-13T18:30', airport: 'KIX' };
+const trip = { id: 't1', name: '大阪五日遊', departure: '2026-11-13T18:30', airport: 'KIX' };
+
+// 截圖裡的「現在」固定在回程前 3 天 6 小時，不跟著真實時間走——之前
+// 是手動把行程日期往後挪，日期一過首頁就變成「已出境」，倒數跟回程
+// 當天流程全部不見。時區也一併鎖在日本，departure 是不帶時區的當地
+// 時間，跑截圖的機器在哪個時區都不該影響倒數。
+const FIXED_NOW = new Date('2026-11-10T12:30:00+09:00');
+const TIMEZONE = 'Asia/Tokyo';
 
 const items = [
   {
     id: 'r1',
     shop: '大國藥妝 心齋橋店',
-    date: '2026-09-05',
+    date: '2026-11-05',
     incl: 12800,
     rate: 10,
     status: 'verified',
@@ -28,7 +35,7 @@ const items = [
   {
     id: 'r2',
     shop: 'ビックカメラ 難波店',
-    date: '2026-09-06',
+    date: '2026-11-06',
     incl: 45800,
     rate: 10,
     status: 'registered',
@@ -39,7 +46,7 @@ const items = [
   {
     id: 'r3',
     shop: 'UNIQLO なんば店',
-    date: '2026-09-06',
+    date: '2026-11-06',
     incl: 6600,
     rate: 10,
     status: 'purchased',
@@ -50,7 +57,7 @@ const items = [
   {
     id: 'r4',
     shop: '7-Eleven 難波駅前',
-    date: '2026-09-07',
+    date: '2026-11-07',
     incl: 980,
     rate: 8,
     status: 'purchased',
@@ -60,7 +67,7 @@ const items = [
   {
     id: 'r5',
     shop: '讚岐うどん本店',
-    date: '2026-09-07',
+    date: '2026-11-07',
     incl: 1200,
     rate: 8,
     status: 'purchased',
@@ -78,9 +85,10 @@ const photos = Object.fromEntries(
 // 視窗、e2e 全部測試都跑這個尺寸）——用它，不是隨便挑一個手機寬度，
 // 避免踩到「螢幕比預期窄，數字被切掉」這種在真正窄螢幕手機上才會
 // 出現的排版問題。deviceScaleFactor 3 放大到 1170×2532 輸出。
-test.use({ viewport: { width: 432, height: 768 }, deviceScaleFactor: 2.5 });
+test.use({ viewport: { width: 432, height: 768 }, deviceScaleFactor: 2.5, timezoneId: TIMEZONE });
 
 test('產生 Play Store 上架截圖', async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_NOW);
   await seedTrip(page, { trips: [trip], activeId: 't1', items, photos });
   await page.goto('/');
   await page.waitForLoadState('networkidle');
@@ -147,6 +155,17 @@ test('產生 Play Store 上架截圖', async ({ page }) => {
   await page.screenshot({ path: `${OUT_DIR}/08-scenario.png` });
 });
 
+// 09 首次開啟介紹——不 seedTrip，什麼都不寫進 localStorage 才會跳介紹
+// （跟 e2e/intro.spec.js 同一個做法）。Play 手機截圖最多 8 張，這張是
+// 備選，上傳時要拿它換掉其中一張。
+test('產生首次開啟介紹截圖', async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_NOW);
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+  await page.getByText('日本退稅小幫手').waitFor();
+  await page.screenshot({ path: `${OUT_DIR}/09-intro.png` });
+});
+
 // 平板截圖：跟手機那組共用同一份種子資料，但用真正的平板寬度（不是把
 // 手機截圖硬拉大）——這個 App 過了 480px 就鎖寬置中、兩側留白，這組
 // 截圖故意用比 480 寬的視窗，如實呈現「在平板上長怎樣」，不是假裝成
@@ -164,7 +183,9 @@ for (const size of TABLET_SIZES) {
     const page = await browser.newPage({
       viewport: { width: size.width, height: size.height },
       deviceScaleFactor: size.scale,
+      timezoneId: TIMEZONE,
     });
+    await page.clock.setFixedTime(FIXED_NOW);
     await seedTrip(page, { trips: [trip], activeId: 't1', items, photos });
     await page.goto('/');
     await page.waitForLoadState('networkidle');

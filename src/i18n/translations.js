@@ -191,6 +191,12 @@ export const T = {
     statusPending: '張待處理',
     statusRefunded: '張已退款',
     statusDead: '張失效',
+    fee: '退款手續費（選填）',
+    feeHint: '有些店家或退款業者每筆會扣固定手續費（例如 ¥320）。結帳時問店員，填了會從預估退款裡扣掉。',
+    feeShort: '手續費',
+    feeNetLabel: '預估實拿',
+    feeHeavyWarn: '手續費吃掉一半以上的稅額，實拿不多。當天行程趕的話，這筆可以考慮不辦。',
+    feeHeavyBadge: '手續費偏高',
     deleteTripWarning: (n) => `刪掉這趟，裡面 ${n} 張收據和照片會一起走，沒辦法復原。`,
     tripDeleteMinNote: '至少要保留一個行程，新增另一個之後才能刪除這個。',
     emptyUnnamedKicker: '這趟行程',
@@ -325,7 +331,7 @@ export const T = {
     deleteCta: '刪除',
     noEndedTripsHint: '目前沒有已結束的行程',
     noPhotosHint: '目前沒有照片可以刪',
-    csvHeaders: ['行程', '店名', '日期', '含稅金額', '稅率', '退款方式', '狀態', '備註'],
+    csvHeaders: ['行程', '店名', '日期', '含稅金額', '稅率', '手續費', '退款方式', '狀態', '備註'],
     csvMixedRateLabel: '8%+10%',
     csvUnnamedTrip: '未命名行程',
     exportFormatCsvLabel: 'CSV',
@@ -417,6 +423,34 @@ export const T = {
     permissionPrimeOptionalDesc: '照片不是必要的。金額自己打一樣能用，不會少任何功能。',
     permissionPrimeAllowCta: '允許使用相機和相簿',
     permissionPrimeDeclineCta: '先不要，我自己手動輸入',
+
+    // ---- 首次開啟介紹 ----
+    introSkip: '略過',
+    introNext: '下一步',
+    introStart: '開始使用',
+    introPages: [
+      {
+        kicker: '日本退稅小幫手',
+        title: '先付後退，\n別漏算、別過期。',
+        desc: '2026 年 11 月起，日本免稅改成「先付後退」：結帳先付含稅價，出境查驗通過後才退稅。收據、期限、有沒有達標，都要自己記。',
+      },
+      {
+        kicker: '01　新增收據',
+        title: '拍下收據，\n金額和店名自動讀出來。',
+        desc: '拍照、從相簿選，或用文件掃描。讀不到也能先存起來，晚點再補。',
+      },
+      {
+        kicker: '02　追蹤進度',
+        title: '有沒有滿 5,000 円，\n一眼就知道。',
+        desc: '同一間店、同一天的收據自動合併計算稅抜金額。填好回程時間，每張收據的 90 天期限也跟著算出來。',
+      },
+      {
+        kicker: '03　出境查驗',
+        title: '到了機場，\n照清單一張一張對。',
+        desc: '還沒辦完的收據整理成中日對照的清單，出示給海關也方便。',
+      },
+    ],
+    introPrivacy: '資料只存在這台手機裡，不用註冊帳號。Kaeru 不代辦退稅，稅額是估算。',
 
     // ---- 2b 體驗調整 ----
     todayActionTitle: '今天要辦的事',
@@ -723,6 +757,12 @@ export const T = {
     statusPending: '件 未処理',
     statusRefunded: '件 返金済み',
     statusDead: '件 失効',
+    fee: '返金手数料（任意）',
+    feeHint: '店舗や返金事業者によっては 1 件ごとに固定の手数料（例：¥320）がかかります。会計時に確認し、入力すると返金見込額から差し引きます。',
+    feeShort: '手数料',
+    feeNetLabel: '受取見込み',
+    feeHeavyWarn: '手数料が消費税額の半分以上を占め、受け取れる額はわずかです。当日の予定が詰まっている場合は手続しない選択肢もあります。',
+    feeHeavyBadge: '手数料が高め',
     deleteTripWarning: (n) => `旅程を削除すると、この ${n} 件のレシートと App 内に保存された写真の複製も一緒に削除されます。元に戻せません。`,
     tripDeleteMinNote: '旅程は最低 1 件必要です。もう 1 件追加すると、これを削除できます。',
     emptyUnnamedKicker: 'この旅程',
@@ -858,7 +898,7 @@ export const T = {
     deleteCta: '削除',
     noEndedTripsHint: '終了した旅程はまだありません',
     noPhotosHint: '削除できる写真がありません',
-    csvHeaders: ['旅程', '店名', '購入日', '税込金額', '税率', '返金方法', '状態', 'メモ'],
+    csvHeaders: ['旅程', '店名', '購入日', '税込金額', '税率', '手数料', '返金方法', '状態', 'メモ'],
     csvMixedRateLabel: '8%+10%',
     csvUnnamedTrip: '名前未設定の旅程',
     exportFormatCsvLabel: 'CSV',
@@ -951,6 +991,34 @@ export const T = {
     permissionPrimeOptionalDesc: '写真は必須ではありません。金額を自分で入力しても、機能は変わりません。',
     permissionPrimeAllowCta: 'カメラと写真へのアクセスを許可',
     permissionPrimeDeclineCta: '今はしない。自分で入力します',
+
+    // ---- 首次開啟介紹 ----
+    introSkip: 'スキップ',
+    introNext: '次へ',
+    introStart: 'はじめる',
+    introPages: [
+      {
+        kicker: '免税リファンドの相棒',
+        title: '先に払って、あとで戻す。\n取りこぼさず、期限も逃さず。',
+        desc: '2026 年 11 月より、日本の免税制度は「リファンド方式」に変わります。会計時に税込価格を支払い、出国時の税関確認後に返金されます。レシート、期限、金額要件の管理はすべて自分で行う必要があります。',
+      },
+      {
+        kicker: '01　レシートを追加',
+        title: '撮るだけで、\n金額と店名を読み取り。',
+        desc: '撮影、アルバムから選択、または文書スキャン。読み取れなくても先に保存し、あとから入力できます。',
+      },
+      {
+        kicker: '02　進捗を確認',
+        title: '5,000 円に届いたか、\nひと目で分かる。',
+        desc: '同一店舗・同一日のレシートは自動でまとめて税抜合計を計算。帰国便の時刻を入れれば、各レシートの 90 日期限も自動で計算されます。',
+      },
+      {
+        kicker: '03　出国時の確認',
+        title: '空港では、\nリストに沿って一枚ずつ。',
+        desc: '未処理のレシートを中日対訳のリストに整理。税関での提示もスムーズです。',
+      },
+    ],
+    introPrivacy: 'データは端末内にのみ保存され、アカウント登録も不要です。Kaeru は免税手続きを代行しません。税額は概算です。',
 
     // ---- 2b 體驗調整 ----
     todayActionTitle: '今日やること',

@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { C } from '../../constants/theme.js';
 import { yen } from '../../lib/money.js';
-import { compressImageSrc, perspectiveCrop, rotateCanvas, applyContrast } from '../../lib/image.js';
-import { reconstructRowsFromLines, parseReceiptOCR, looksLikeReceiptText } from '../../lib/ocr.js';
+import { compressImageSrc, fitScale, perspectiveCrop, rotateCanvas, applyContrast } from '../../lib/image.js';
+import {
+  recognizePageText,
+  mergePageTexts,
+  parseReceiptOCR,
+  looksLikeReceiptText,
+} from '../../lib/ocr.js';
 import { useDirtyBackGuard } from '../../hooks/useBackNav.js';
-import ReceiptScanner from '../../receiptScanner.js';
 import { dataUrlBytes, formatBytes } from '../../exportData.js';
 import { Badge } from '../ui/Badge.jsx';
 import { FullScreenSheet } from '../ui/FullScreenSheet.jsx';
@@ -13,7 +17,7 @@ import { DiscardConfirmSheet } from '../ui/DiscardConfirmSheet.jsx';
 // 畫面4：確認與裁切。四角把手是相對於「圖片自己實際渲染出來的那個框」
 // 的百分比座標（0~1），拖曳時用 wrapperRef 量測出來的框反推百分比，
 // 這樣不管圖片比例、螢幕大小都對得上，不用管 object-fit 的letterbox。
-export function PhotoConfirmSheet({ t, src, fromScan, onRetake, onUse, onClose }) {
+export function PhotoConfirmSheet({ t, src, fromScan, extraPages, onRetake, onUse, onClose }) {
   const DEFAULT_CORNERS = [
     { x: 0.04, y: 0.04 },
     { x: 0.96, y: 0.04 },
@@ -56,52 +60,72 @@ export function PhotoConfirmSheet({ t, src, fromScan, onRetake, onUse, onClose }
     JSON.stringify(corners) !== JSON.stringify(DEFAULT_CORNERS);
   const guard = useDirtyBackGuard(isDirty, onClose);
 
+  // extraPages：同一次文件掃描的第 2 頁以後（長收據分段掃）。裁切畫面
+  // 只處理第一頁，但 OCR 要每一頁都跑、文字接起來才解析——長收據的
+  // 合計／稅額都印在最下面，只讀第一頁的話通常只抓得到店名跟日期。
+  // 這些頁本身照舊由 usePhotoCapture 直接加進照片裡，這裡只拿來辨識。
+  const extraKey = (extraPages || []).length;
   useEffect(() => {
     let alive = true;
     (async () => {
-      try {
-        // recognizeText 原生端只吃 base64；掃描結果本來就是 data URL，
-        // 相機給的 webPath 不是，要先轉一次。這一步跟畫面顯示無關，
-        // 不會擋到裁切畫面出現，使用者已經看得到照片、可以開始調整了。
-        const b64Src = src.startsWith('data:') ? src : await compressImageSrc(src, 1600, 0.85);
-        const res = await ReceiptScanner.recognizeText({ image: b64Src });
+      // recognizeText 原生端只吃 base64；掃描結果本來就是 data URL，
+      // 相機給的 webPath 不是，要先轉一次。這一步跟畫面顯示無關，
+      // 不會擋到裁切畫面出現，使用者已經看得到照片、可以開始調整了。
+      const pages = [src, ...(extraPages || [])];
+      const raws = [];
+      const texts = [];
+      let anyOk = false;
+      for (const page of pages) {
+        try {
+          // 2400 不是 1600：整條長收據拍成一張照片時，收據只佔畫面中間
+          // 窄窄一條，1600 的時候字太小，實測連「合計」那一行都讀不到；
+          // 2400 就讀得到，辨識時間差不多。
+          const b64Src = page.startsWith('data:') ? page : await compressImageSrc(page, 2400, 0.85);
+          const { raw, text } = await recognizePageText(b64Src);
+          raws.push(raw);
+          texts.push(text);
+          anyOk = true;
+        } catch (err) {
+          // 某一頁辨識失敗就跳過那一頁，不要讓整份收據其他頁讀到的
+          // 東西一起作廢；全部頁都失敗才算「辨識本身失敗」（見下面）。
+          console.error('[ReceiptScanner] recognizeText failed:', err);
+        }
         if (!alive) return;
-        // 有座標（lines）就用它重組出跟收據實際排版一致的閱讀順序，
-        // 原生端直接接好的 text 常常是「左欄全部先列完，右欄才接著
-        // 列」，標籤跟金額對不起來；沒有座標（例如原生端還沒更新過）
-        // 才退回用 text。
-        const reconstructed = res?.lines?.length
-          ? reconstructRowsFromLines(res.lines)
-          : '';
-        const forParse = reconstructed || res?.text || '';
-        // 方便真機除錯：原始文字、重組後文字、解析結果都印出來——
-        // 「讀不到」跟「辨識本身失敗」在畫面上長一樣，但 console 看得出差別，
-        // 重組後文字如果還是抓不到，代表要調的是 parseReceiptOCR 的規則，
-        // 不是座標重組本身。
-        console.log('[ReceiptScanner] recognized text (raw):', res?.text);
-        console.log(
-          '[ReceiptScanner] recognized text (reconstructed by position):',
-          reconstructed,
-        );
-        const parsed = parseReceiptOCR(forParse);
-        const looksLikeReceipt = looksLikeReceiptText(forParse);
-        console.log('[ReceiptScanner] parsed:', parsed);
-        console.log('[ReceiptScanner] looks like receipt:', looksLikeReceipt);
-        setOcr({ loading: false, parsed, looksLikeReceipt });
-      } catch (err) {
-        console.error('[ReceiptScanner] recognizeText failed:', err);
+      }
+      if (!anyOk) {
         // 辨識這一步本身失敗（權限、原生端出錯）跟「拍到的東西真的不
         // 像收據」是不一樣的兩件事，這裡沒有任何文字可以判斷，不能
         // 直接當作「不像收據」——那樣使用者什麼都沒做錯，卻被問一句
         // 「這是不是收據」，莫名其妙。looksLikeReceipt 給 true，讓它
         // 照舊走「讀不到，手動補」那條路。
-        if (alive) setOcr({ loading: false, parsed: null, looksLikeReceipt: true });
+        setOcr({ loading: false, parsed: null, looksLikeReceipt: true });
+        return;
       }
+      // 有座標（lines）就用它重組出跟收據實際排版一致的閱讀順序，
+      // 原生端直接接好的 text 常常是「左欄全部先列完，右欄才接著
+      // 列」，標籤跟金額對不起來；沒有座標（例如原生端還沒更新過）
+      // 才退回用 text（見 recognizePageText）。多頁的話依掃描順序接
+      // 起來（見 mergePageTexts）。
+      const forParse = mergePageTexts(texts);
+      // 方便真機除錯：原始文字、重組後文字、解析結果都印出來——
+      // 「讀不到」跟「辨識本身失敗」在畫面上長一樣，但 console 看得出差別，
+      // 重組後文字如果還是抓不到，代表要調的是 parseReceiptOCR 的規則，
+      // 不是座標重組本身。
+      console.log('[ReceiptScanner] pages recognized:', `${texts.length}/${pages.length}`);
+      console.log('[ReceiptScanner] recognized text (raw):', mergePageTexts(raws));
+      console.log('[ReceiptScanner] recognized text (reconstructed by position):', forParse);
+      const parsed = parseReceiptOCR(forParse);
+      const looksLikeReceipt = looksLikeReceiptText(forParse);
+      console.log('[ReceiptScanner] parsed:', parsed);
+      console.log('[ReceiptScanner] looks like receipt:', looksLikeReceipt);
+      setOcr({ loading: false, parsed, looksLikeReceipt });
     })();
     return () => {
       alive = false;
     };
-  }, [src]);
+    // extraPages 只在開啟這個畫面時給一次，不會中途變，用長度當依賴就夠
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src, extraKey]);
 
   function buildOutput() {
     const img = imgRef.current;
@@ -129,7 +153,8 @@ export function PhotoConfirmSheet({ t, src, fromScan, onRetake, onUse, onClose }
     if (w < 20 || h < 20) {
       throw new Error('crop area too small');
     }
-    const scale = Math.min(1, 1000 / Math.max(w, h, 1));
+    // 跟 compressImageSrc 同一套縮圖規則，長條收據才不會在這裡被壓窄（見 fitScale）
+    const scale = fitScale(w, h, 1000);
     w = Math.max(1, Math.round(w * scale));
     h = Math.max(1, Math.round(h * scale));
     let canvas = perspectiveCrop(img, natCorners, w, h);
